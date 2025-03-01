@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Asset Code, Photo, Description, & Remedial Action</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      max-width: 800px;
+    }
+    form, .buttons {
+      margin: 20px 0;
+    }
+    label {
+      display: block;
+      margin: 5px 0;
+    }
+    select, input, button, textarea {
+      margin: 5px 0;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin-top: 20px;
+    }
+    table, th, td {
+      border: 1px solid #ccc;
+      padding: 10px;
+      vertical-align: top;
+    }
+    th {
+      background: #f9f9f9;
+    }
+    img {
+      max-width: 120px;
+      height: auto;
+      display: block;
+      margin: 0 auto;
+    }
+  </style>
+</head>
+<body>
+  <h1>Asset Manager</h1>
+
+  <!-- Form for capturing: Asset Code, Photo, Description, Remedial Action -->
+  <form id="entryForm">
+    <!-- Dropdown for Asset Code -->
+    <label for="assetCodeSelect"><strong>Asset Code:</strong></label>
+    <select id="assetCodeSelect" required>
+      <option value="">-- Select an asset code --</option>
+      <option value="AC-100">AC-100</option>
+      <option value="AC-123">AC-123</option>
+      <option value="AC-200">AC-200</option>
+      <option value="AC-300">AC-300</option>
+      <option value="other">Other (type in below)</option>
+    </select>
+
+    <!-- Hidden text field that appears if "Other" is chosen -->
+    <input 
+      type="text" 
+      id="assetCodeInput" 
+      placeholder="Enter custom asset code" 
+      style="display:none;"
+    >
+
+    <label><strong>Photo:</strong>
+      <!-- capture=camera triggers phone camera on many mobile browsers -->
+      <input 
+        type="file" 
+        id="imageInput" 
+        accept="image/*;capture=camera" 
+        required
+      >
+    </label>
+
+    <label><strong>Description:</strong>
+      <textarea id="descriptionInput" rows="2" placeholder="Describe the asset" required></textarea>
+    </label>
+
+    <label><strong>Remedial Action:</strong>
+      <textarea id="remedialInput" rows="2" placeholder="e.g. Fix, Replace" required></textarea>
+    </label>
+
+    <button type="submit">Add Entry</button>
+  </form>
+
+  <div class="buttons">
+    <button id="generatePdf">Generate PDF</button>
+  </div>
+
+  <h2>Existing Entries</h2>
+  <table id="entriesTable">
+    <thead>
+      <tr>
+        <th>Asset Code</th>
+        <th>Photo</th>
+        <th>Description</th>
+        <th>Remedial Action</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <!-- Load jsPDF from a CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script>
+    // ------------------- Local Storage -------------------
+    let entries = JSON.parse(localStorage.getItem('myAssetEntries') || '[]');
+
+    // Cached DOM Elements
+    const entryForm         = document.getElementById('entryForm');
+    const assetCodeSelect   = document.getElementById('assetCodeSelect');
+    const assetCodeInput    = document.getElementById('assetCodeInput'); // shown if "other" is chosen
+    const imageInput        = document.getElementById('imageInput');
+    const descriptionInput  = document.getElementById('descriptionInput');
+    const remedialInput     = document.getElementById('remedialInput');
+    const entriesTableBody  = document.querySelector('#entriesTable tbody');
+    const generatePdfButton = document.getElementById('generatePdf');
+
+    // ------------------- Show/Hide the custom asset code input -------------------
+    assetCodeSelect.addEventListener('change', () => {
+      if (assetCodeSelect.value === 'other') {
+        assetCodeInput.style.display = 'block';
+        assetCodeInput.required = true;
+      } else {
+        assetCodeInput.style.display = 'none';
+        assetCodeInput.required = false;
+        assetCodeInput.value = '';  // clear if switching away from "Other"
+      }
+    });
+
+    // ------------------- Render Entries (HTML Table) -------------------
+    function renderEntries() {
+      entriesTableBody.innerHTML = '';
+      entries.forEach((entry, index) => {
+        const row = document.createElement('tr');
+
+        // Asset Code cell
+        const assetCell = document.createElement('td');
+        const assetArea = document.createElement('textarea');
+        assetArea.value = entry.assetCode;
+        assetArea.rows  = 1;
+        assetArea.style.width = '100%';
+        assetArea.onchange = function() {
+          entries[index].assetCode = this.value;
+          saveEntries();
+        };
+        assetCell.appendChild(assetArea);
+        row.appendChild(assetCell);
+
+        // Photo cell
+        const photoCell = document.createElement('td');
+        const img = document.createElement('img');
+        img.src = entry.image; // base64 data
+        photoCell.appendChild(img);
+        row.appendChild(photoCell);
+
+        // Description cell
+        const descCell = document.createElement('td');
+        const descArea = document.createElement('textarea');
+        descArea.value = entry.description;
+        descArea.rows  = 2;
+        descArea.style.width = '100%';
+        descArea.onchange = function() {
+          entries[index].description = this.value;
+          saveEntries();
+        };
+        descCell.appendChild(descArea);
+        row.appendChild(descCell);
+
+        // Remedial Action cell
+        const remedialCell = document.createElement('td');
+        const remedialArea = document.createElement('textarea');
+        remedialArea.value = entry.remedial;
+        remedialArea.rows  = 2;
+        remedialArea.style.width = '100%';
+        remedialArea.onchange = function() {
+          entries[index].remedial = this.value;
+          saveEntries();
+        };
+        remedialCell.appendChild(remedialArea);
+        row.appendChild(remedialCell);
+
+        // Actions cell (Delete button)
+        const actionsCell = document.createElement('td');
+        const deleteBtn = document.createElement('button');
+        deleteBtn.textContent = 'Delete';
+        deleteBtn.onclick = () => {
+          entries.splice(index, 1);
+          saveEntries();
+          renderEntries();
+        };
+        actionsCell.appendChild(deleteBtn);
+        row.appendChild(actionsCell);
+
+        entriesTableBody.appendChild(row);
+      });
+    }
+
+    // ------------------- Save to Local Storage -------------------
+    function saveEntries() {
+      localStorage.setItem('myAssetEntries', JSON.stringify(entries));
+    }
+
+    // ------------------- Handle Form Submission -------------------
+    entryForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+
+      // Determine which field (dropdown vs text) is the actual asset code
+      let assetCode = assetCodeSelect.value;
+      if (assetCode === 'other') {
+        // Use the custom input value instead
+        assetCode = assetCodeInput.value.trim();
+      }
+
+      const file = imageInput.files[0];
+      if (!file) {
+        alert("Please select a photo.");
+        return;
+      }
+
+      const description = descriptionInput.value.trim();
+      const remedial    = remedialInput.value.trim();
+
+      // Basic checks
+      if (!assetCode) {
+        alert("Please select or enter an asset code.");
+        return;
+      }
+      if (!description || !remedial) {
+        alert("Please fill out all fields.");
+        return;
+      }
+
+      // Convert the photo to base64
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        const imageData = event.target.result; // base64
+        // Add new entry
+        entries.push({
+          assetCode:   assetCode,
+          image:       imageData,
+          description: description,
+          remedial:    remedial
+        });
+        saveEntries();
+        renderEntries();
+        entryForm.reset();
+        
+        // Reset the "Other" logic
+        assetCodeInput.style.display = 'none';
+        assetCodeInput.required = false;
+      };
+      reader.readAsDataURL(file);
+    });
+
+    // ------------------- Generate PDF with 4 Columns -------------------
+    generatePdfButton.addEventListener('click', () => {
+      const { jsPDF } = window.jspdf;
+      const doc       = new jsPDF('p', 'pt', 'letter'); // portrait, points, letter-size
+
+      // We'll define 4 columns in a manual table approach:
+      //   1) Asset Code
+      //   2) Photo
+      //   3) Description
+      //   4) Remedial Action
+
+      // Column widths:
+      const startX       = 40;   // left margin
+      let currentY       = 40;   // top margin
+      const colAssetW    = 90;   // Asset Code
+      const colPhotoW    = 130;  // Photo
+      const colDescW     = 180;  // Description
+      const colRemedialW = 140;  // Remedial
+      const tableW       = colAssetW + colPhotoW + colDescW + colRemedialW;
+      const rowHeight    = 100;  // Each row's height (adjust as needed)
+
+      doc.setFontSize(14);
+      doc.text('Asset Table', startX, currentY);
+      currentY += 10;
+
+      // Draw header row (height ~ 30)
+      const headerHeight = 30;
+      drawRowBorder(currentY, headerHeight);
+
+      doc.setFontSize(12);
+      // Column titles with some offsets
+      doc.text('Asset',        startX + 5,                              currentY + 18);
+      doc.text('Photo',        startX + colAssetW + 5,                  currentY + 18);
+      doc.text('Description',  startX + colAssetW + colPhotoW + 5,      currentY + 18);
+      doc.text('Remedial',     startX + colAssetW + colPhotoW + colDescW + 5, currentY + 18);
+
+      currentY += headerHeight;
+
+      // Iterate over entries, draw one row per entry
+      entries.forEach(entry => {
+        // Draw border for the row
+        drawRowBorder(currentY, rowHeight);
+
+        // Column A: Asset Code (text)
+        doc.setFontSize(10);
+        const assetX = startX + 5;
+        const assetY = currentY + 20;
+        const assetW = colAssetW - 10; // 5pt padding each side
+        const assetLines = doc.splitTextToSize(entry.assetCode, assetW);
+        doc.text(assetLines, assetX, assetY);
+
+        // Column B: Photo
+        const imgX = startX + colAssetW + 5;
+        const maxImgWidth  = colPhotoW - 10;
+        const maxImgHeight = rowHeight - 10;
+        try {
+          // Detect if it's PNG or JPEG
+          const isPng  = (entry.image || '').toLowerCase().includes('image/png');
+          const format = isPng ? 'PNG' : 'JPEG';
+          const imgProps = doc.getImageProperties(entry.image);
+          let iWidth  = imgProps.width;
+          let iHeight = imgProps.height;
+          // Scale to fit
+          const ratio = Math.min(maxImgWidth / iWidth, maxImgHeight / iHeight);
+          iWidth  *= ratio;
+          iHeight *= ratio;
+          // Center vertically
+          const yOffset = (rowHeight - iHeight) / 2;
+          doc.addImage(entry.image, format, imgX, currentY + yOffset, iWidth, iHeight);
+        } catch (err) {
+          console.error('Image error:', err);
+        }
+
+        // Column C: Description
+        const descX  = startX + colAssetW + colPhotoW + 5;
+        const descY  = currentY + 20;
+        const descW  = colDescW - 10;
+        const descLines = doc.splitTextToSize(entry.description, descW);
+        doc.text(descLines, descX, descY);
+
+        // Column D: Remedial
+        const remedX  = startX + colAssetW + colPhotoW + colDescW + 5;
+        const remedY  = currentY + 20;
+        const remedW  = colRemedialW - 10;
+        const remedLines = doc.splitTextToSize(entry.remedial, remedW);
+        doc.text(remedLines, remedX, remedY);
+
+        // Move to next row
+        currentY += rowHeight;
+
+        // If near bottom of page (letter is ~792pt tall, keep some margin)
+        if (currentY > 740) {
+          doc.addPage();
+          currentY = 40;
+        }
+      });
+
+      // Helper to draw row border (top, bottom, vertical lines for columns)
+      function drawRowBorder(y, height) {
+        // top line
+        doc.line(startX, y,               startX + tableW, y);
+        // bottom line
+        doc.line(startX, y + height,      startX + tableW, y + height);
+
+        // vertical lines
+        doc.line(startX, y,               startX, y + height); // left edge
+        doc.line(startX + colAssetW, y,   startX + colAssetW, y + height);
+        doc.line(startX + colAssetW + colPhotoW, y,
+                 startX + colAssetW + colPhotoW, y + height);
+        doc.line(startX + colAssetW + colPhotoW + colDescW, y,
+                 startX + colAssetW + colPhotoW + colDescW, y + height);
+        doc.line(startX + tableW, y,      startX + tableW, y + height);
+      }
+
+      doc.save('entries.pdf');
+    });
+
+    // ------------------- Initialize -------------------
+    renderEntries();
+
+  </script>
+</body>
+</html>
