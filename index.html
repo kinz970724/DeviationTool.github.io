@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Asset Code, Photo, Description, & Remedial Action</title>
+  <title>Deviations Tracker</title>
   <!-- Make pages scale nicely on phones -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
@@ -19,8 +19,7 @@
       text-align: center;
     }
 
-    /* Make the form and buttons have a bit of space */
-    form, .buttons {
+    form, .buttons, .filterBox {
       margin: 20px 0;
     }
 
@@ -42,23 +41,19 @@
       resize: vertical;
     }
 
-    /* Table styling */
     table {
       border-collapse: collapse;
       width: 100%;
       margin-top: 20px;
     }
-
     table, th, td {
       border: 1px solid #ccc;
       padding: 10px;
       vertical-align: top;
     }
-
     th {
       background: #f9f9f9;
     }
-
     img {
       max-width: 120px;
       height: auto;
@@ -66,14 +61,14 @@
       margin: 0 auto;
     }
 
-    /* Responsiveness */
+    /* Responsive table for smaller screens */
     @media (max-width: 600px) {
       table, thead, tbody, th, td, tr {
         display: block;
         width: 100%;
       }
       thead {
-        display: none; /* Hide table header on narrow screens */
+        display: none; /* Hide table header */
       }
       tr {
         margin-bottom: 20px;
@@ -95,35 +90,17 @@
   </style>
 </head>
 <body>
-  <h1>Asset Manager</h1>
+  <h1>Deviations Tracker</h1>
 
   <!-- Form for capturing: Asset Code, Photo, Description, Remedial Action -->
   <form id="entryForm">
-    <!-- Dropdown for Asset Code -->
     <label for="assetCodeSelect">Asset Code:</label>
     <select id="assetCodeSelect" required>
-      <option value="">-- Select an asset code --</option>
-      <option value="131-CON-01">131-CON-01 – PRIMARY DMS SURGE BIN FEED CONVEYOR</option>
-      <option value="131-CON-02">131-CON-02 – PRIMARY DMS FEED CONVEYOR</option>
-      <option value="141-CON-01">141-CON-01 – SECONDARY DMS SURGE BIN FEED CONVEYOR</option>
-      <option value="151-CON-01">151-CON-01 – RECRUSH DMS SURGE BIN FEED CONVEYOR</option>
-      <option value="161-CON-01">161-CON-01 – SINKS SCREENING FEED CONVEYOR</option>
-      <option value="163-CON-01">163-CON-01 – COARSE RECRUSH FEED CONVEYOR</option>
-      <option value="164-CON-01">164-CON-01 – COARSE RECRUSH OVERSIZED SCREENING FEED CONVEYOR</option>
-      <option value="171-CON-01">171-CON-01 – SECONDARY FINES DMS PRODUCT TRANSFER CONVEYOR</option>
-      <option value="171-CON-02">171-CON-02 – RECRUSH DMS PRODUCT TRANSFER CONVEYOR</option>
-      <option value="171-CON-03">171-CON-03 – PRODUCT STOCKPILE RADIAL STACKER</option>
-      <option value="171-CON-03A">171-CON-03A – PRODUCT STOCKPILE RADIAL STACKER SLEW DRIVE</option>
-      <option value="182-CON-01">182-CON-01 – ULTRAFINES TRANSFER CONVEYOR</option>
-      <option value="182-CON-02">182-CON-02 – ULTRAFINES STOCKPILE RADIAL STACKER</option>
-      <option value="182-CON-02A">182-CON-02A – ULTRAFINES STOCKPILE RADIAL STACKER - SLEW DRIVE</option>
-      <option value="184-CON-01">184-CON-01 – SECONDARY DMS FLOATS TRANSFER CONVEYOR</option>
-      <option value="184-CON-02">184-CON-02 – PRIMARY DMS FLOATS TRANSFER CONVEYOR</option>
-      <option value="184-CON-03">184-CON-03 – COMBINED DMS FLOATS TRANSFER CONVEYOR</option>
+      <option value="">-- Loading codes... --</option>
+      <!-- We’ll populate this dynamically with JavaScript -->
     </select>
 
     <label for="imageInput">Photo:</label>
-    <!-- capture=camera often triggers phone camera on mobile -->
     <input 
       type="file" 
       id="imageInput" 
@@ -144,6 +121,12 @@
     <button id="generatePdf">Generate PDF</button>
   </div>
 
+  <!-- Filter box for searching Asset Codes in the table -->
+  <div class="filterBox">
+    <label for="filterInput">Filter by Asset Code:</label>
+    <input type="text" id="filterInput" placeholder="Type part of an asset code...">
+  </div>
+
   <h2>Existing Entries</h2>
   <table id="entriesTable">
     <thead>
@@ -161,7 +144,7 @@
   <!-- Load jsPDF from a CDN -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script>
-    // ------------------- Local Storage -------------------
+    // Data in localStorage:
     let entries = JSON.parse(localStorage.getItem('myAssetEntries') || '[]');
 
     // Cached DOM Elements
@@ -172,11 +155,47 @@
     const remedialInput     = document.getElementById('remedialInput');
     const entriesTableBody  = document.querySelector('#entriesTable tbody');
     const generatePdfButton = document.getElementById('generatePdf');
+    const filterInput       = document.getElementById('filterInput');
 
-    // ------------------- Render Entries (HTML Table) -------------------
+    // On page load, fetch the text file with asset codes
+    fetch('assetCodes.txt')
+      .then(response => response.text())
+      .then(textData => {
+        // Split lines, remove empties
+        const lines = textData
+          .split('\n')
+          .map(line => line.trim())
+          .filter(line => line);
+        
+        // Clear the placeholder <option>
+        assetCodeSelect.innerHTML = '<option value="">-- Select an asset code --</option>';
+
+        // For each line, create an <option> in the <select>
+        lines.forEach(line => {
+          const opt = document.createElement('option');
+          opt.value = line;
+          opt.textContent = line;
+          assetCodeSelect.appendChild(opt);
+        });
+      })
+      .catch(err => {
+        console.error('Error loading assetCodes.txt:', err);
+        assetCodeSelect.innerHTML = '<option value="">-- Failed to load codes --</option>';
+      });
+
+    // Renders the table. We'll apply the filter to entries.
     function renderEntries() {
       entriesTableBody.innerHTML = '';
-      entries.forEach((entry, index) => {
+
+      // Grab the current filter text
+      const filterValue = filterInput.value.toLowerCase();
+
+      // Filter entries so only matching asset codes appear
+      const filtered = entries.filter(e => 
+        e.assetCode.toLowerCase().includes(filterValue)
+      );
+
+      filtered.forEach((entry, index) => {
         const row = document.createElement('tr');
 
         // Asset Code cell
@@ -246,12 +265,12 @@
       });
     }
 
-    // ------------------- Save to Local Storage -------------------
+    // Write `entries` back to localStorage
     function saveEntries() {
       localStorage.setItem('myAssetEntries', JSON.stringify(entries));
     }
 
-    // ------------------- Handle Form Submission -------------------
+    // Form submission: read the photo, store in `entries`
     entryForm.addEventListener('submit', (e) => {
       e.preventDefault();
 
@@ -277,7 +296,7 @@
       const reader = new FileReader();
       reader.onload = function(event) {
         const imageData = event.target.result; // base64
-        // Add new entry
+        // Add new entry to our array
         entries.push({
           assetCode:   assetCode,
           image:       imageData,
@@ -291,10 +310,15 @@
       reader.readAsDataURL(file);
     });
 
-    // ------------------- Generate PDF -------------------
+    // When user types in the filter box, re‐render the table.
+    filterInput.addEventListener('input', () => {
+      renderEntries();
+    });
+
+    // Button to generate PDF
     generatePdfButton.addEventListener('click', () => {
       const { jsPDF } = window.jspdf;
-      const doc       = new jsPDF('p', 'pt', 'letter'); // portrait, points, letter-size
+      const doc       = new jsPDF('p', 'pt', 'letter');
 
       // We'll define 4 columns in a manual table approach:
       //   1) Asset Code
@@ -302,114 +326,103 @@
       //   3) Description
       //   4) Remedial Action
 
-      // Column widths:
-      const startX       = 40;   // left margin
-      let currentY       = 40;   // top margin
-      const colAssetW    = 90;   // Asset Code
-      const colPhotoW    = 130;  // Photo
-      const colDescW     = 180;  // Description
-      const colRemedialW = 140;  // Remedial
+      const startX       = 40;
+      let currentY       = 40;
+      const colAssetW    = 90;
+      const colPhotoW    = 130;
+      const colDescW     = 180;
+      const colRemedialW = 140;
       const tableW       = colAssetW + colPhotoW + colDescW + colRemedialW;
-      const rowHeight    = 100;  // Each row's height (adjust as needed)
+      const rowHeight    = 100;
 
       doc.setFontSize(14);
       doc.text('Asset Table', startX, currentY);
       currentY += 10;
 
-      // Draw header row (height ~ 30)
+      // Draw header row
       const headerHeight = 30;
       drawRowBorder(currentY, headerHeight);
-
       doc.setFontSize(12);
-      // Column titles with some offsets
-      doc.text('Asset',        startX + 5,                              currentY + 18);
-      doc.text('Photo',        startX + colAssetW + 5,                  currentY + 18);
-      doc.text('Description',  startX + colAssetW + colPhotoW + 5,      currentY + 18);
-      doc.text('Remedial',     startX + colAssetW + colPhotoW + colDescW + 5, currentY + 18);
-
+      doc.text('Asset',       startX + 5,                               currentY + 18);
+      doc.text('Photo',       startX + colAssetW + 5,                   currentY + 18);
+      doc.text('Description', startX + colAssetW + colPhotoW + 5,       currentY + 18);
+      doc.text('Remedial',    startX + colAssetW + colPhotoW + colDescW + 5, currentY + 18);
       currentY += headerHeight;
 
-      // Iterate over entries
-      entries.forEach(entry => {
-        // Draw border for the row
+      // Filtered entries (based on filter box) to print
+      const filterValue = filterInput.value.toLowerCase();
+      const filtered = entries.filter(e => e.assetCode.toLowerCase().includes(filterValue));
+
+      // Generate each row
+      filtered.forEach(entry => {
         drawRowBorder(currentY, rowHeight);
 
-        // Column A: Asset Code (text)
         doc.setFontSize(10);
+        // Asset Code
         const assetX = startX + 5;
         const assetY = currentY + 20;
-        const assetW = colAssetW - 10; // 5pt padding each side
-        const assetLines = doc.splitTextToSize(entry.assetCode, assetW);
+        const assetW_ = colAssetW - 10; 
+        const assetLines = doc.splitTextToSize(entry.assetCode, assetW_);
         doc.text(assetLines, assetX, assetY);
 
-        // Column B: Photo
+        // Photo
         const imgX = startX + colAssetW + 5;
         const maxImgWidth  = colPhotoW - 10;
         const maxImgHeight = rowHeight - 10;
         try {
-          // Determine format from data
           const isPng  = (entry.image || '').toLowerCase().includes('image/png');
           const format = isPng ? 'PNG' : 'JPEG';
           const imgProps = doc.getImageProperties(entry.image);
           let iWidth  = imgProps.width;
           let iHeight = imgProps.height;
-          // Scale to fit
+          // Scale down to fit
           const ratio = Math.min(maxImgWidth / iWidth, maxImgHeight / iHeight);
           iWidth  *= ratio;
           iHeight *= ratio;
-          // Center vertically in the row
           const yOffset = (rowHeight - iHeight) / 2;
           doc.addImage(entry.image, format, imgX, currentY + yOffset, iWidth, iHeight);
         } catch (err) {
           console.error('Image error:', err);
         }
 
-        // Column C: Description
-        const descX  = startX + colAssetW + colPhotoW + 5;
-        const descY  = currentY + 20;
-        const descW  = colDescW - 10;
-        const descLines = doc.splitTextToSize(entry.description, descW);
+        // Description
+        const descX = startX + colAssetW + colPhotoW + 5;
+        const descY = currentY + 20;
+        const descW_ = colDescW - 10;
+        const descLines = doc.splitTextToSize(entry.description, descW_);
         doc.text(descLines, descX, descY);
 
-        // Column D: Remedial
-        const remedX  = startX + colAssetW + colPhotoW + colDescW + 5;
-        const remedY  = currentY + 20;
-        const remedW  = colRemedialW - 10;
-        const remedLines = doc.splitTextToSize(entry.remedial, remedW);
+        // Remedial
+        const remedX = startX + colAssetW + colPhotoW + colDescW + 5;
+        const remedY = currentY + 20;
+        const remedW_ = colRemedialW - 10;
+        const remedLines = doc.splitTextToSize(entry.remedial, remedW_);
         doc.text(remedLines, remedX, remedY);
 
-        // Move to next row
         currentY += rowHeight;
-
-        // If near bottom of page, add a new page
+        // If near bottom, new page
         if (currentY > 740) {
           doc.addPage();
           currentY = 40;
         }
       });
 
-      // Helper function to draw row border
       function drawRowBorder(y, height) {
-        // top line
-        doc.line(startX, y, startX + tableW, y);
-        // bottom line
-        doc.line(startX, y + height, startX + tableW, y + height);
-
-        // vertical lines
-        doc.line(startX, y, startX, y + height);
-        doc.line(startX + colAssetW, y, startX + colAssetW, y + height);
+        doc.line(startX, y,            startX + tableW, y);
+        doc.line(startX, y + height,   startX + tableW, y + height);
+        doc.line(startX, y,            startX, y + height);
+        doc.line(startX + colAssetW, y,   startX + colAssetW, y + height);
         doc.line(startX + colAssetW + colPhotoW, y,
                  startX + colAssetW + colPhotoW, y + height);
         doc.line(startX + colAssetW + colPhotoW + colDescW, y,
                  startX + colAssetW + colPhotoW + colDescW, y + height);
-        doc.line(startX + tableW, y, startX + tableW, y + height);
+        doc.line(startX + tableW, y,   startX + tableW, y + height);
       }
 
-      // Save the PDF
       doc.save('entries.pdf');
     });
 
-    // ------------------- On Load -------------------
+    // On load, render once
     renderEntries();
   </script>
 </body>
