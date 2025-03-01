@@ -97,7 +97,7 @@
     <label for="assetCodeSelect">Asset Code:</label>
     <select id="assetCodeSelect" required>
       <option value="">-- Loading codes... --</option>
-      <!-- We’ll populate this dynamically with JavaScript -->
+      <!-- We'll populate this with fetch('assetCodes.txt') -->
     </select>
 
     <label for="imageInput">Photo:</label>
@@ -144,7 +144,7 @@
   <!-- Load jsPDF from a CDN -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script>
-    // Data in localStorage:
+    // ------------------- Local Storage Data -------------------
     let entries = JSON.parse(localStorage.getItem('myAssetEntries') || '[]');
 
     // Cached DOM Elements
@@ -157,20 +157,20 @@
     const generatePdfButton = document.getElementById('generatePdf');
     const filterInput       = document.getElementById('filterInput');
 
-    // On page load, fetch the text file with asset codes
+    // 1) Load asset codes from assetCodes.txt
     fetch('assetCodes.txt')
       .then(response => response.text())
       .then(textData => {
-        // Split lines, remove empties
+        // Each line is one asset code
         const lines = textData
           .split('\n')
           .map(line => line.trim())
           .filter(line => line);
-        
-        // Clear the placeholder <option>
+
+        // Clear the default placeholder option
         assetCodeSelect.innerHTML = '<option value="">-- Select an asset code --</option>';
 
-        // For each line, create an <option> in the <select>
+        // Populate the dropdown
         lines.forEach(line => {
           const opt = document.createElement('option');
           opt.value = line;
@@ -183,18 +183,17 @@
         assetCodeSelect.innerHTML = '<option value="">-- Failed to load codes --</option>';
       });
 
-    // Renders the table. We'll apply the filter to entries.
+    // 2) Render table
     function renderEntries() {
       entriesTableBody.innerHTML = '';
 
-      // Grab the current filter text
+      // Filter logic
       const filterValue = filterInput.value.toLowerCase();
-
-      // Filter entries so only matching asset codes appear
-      const filtered = entries.filter(e => 
+      const filtered = entries.filter(e =>
         e.assetCode.toLowerCase().includes(filterValue)
       );
 
+      // Build the table rows from filtered entries
       filtered.forEach((entry, index) => {
         const row = document.createElement('tr');
 
@@ -265,12 +264,12 @@
       });
     }
 
-    // Write `entries` back to localStorage
+    // 3) Save to localStorage
     function saveEntries() {
       localStorage.setItem('myAssetEntries', JSON.stringify(entries));
     }
 
-    // Form submission: read the photo, store in `entries`
+    // 4) Handle Form Submission
     entryForm.addEventListener('submit', (e) => {
       e.preventDefault();
 
@@ -295,11 +294,11 @@
       // Convert the photo to base64
       const reader = new FileReader();
       reader.onload = function(event) {
-        const imageData = event.target.result; // base64
-        // Add new entry to our array
+        const imageData = event.target.result; 
+        // Add new entry
         entries.push({
           assetCode:   assetCode,
-          image:       imageData,
+          image:       imageData, // base64
           description: description,
           remedial:    remedial
         });
@@ -310,12 +309,12 @@
       reader.readAsDataURL(file);
     });
 
-    // When user types in the filter box, re‐render the table.
+    // 5) Filter as you type
     filterInput.addEventListener('input', () => {
       renderEntries();
     });
 
-    // Button to generate PDF
+    // 6) Generate PDF
     generatePdfButton.addEventListener('click', () => {
       const { jsPDF } = window.jspdf;
       const doc       = new jsPDF('p', 'pt', 'letter');
@@ -349,11 +348,11 @@
       doc.text('Remedial',    startX + colAssetW + colPhotoW + colDescW + 5, currentY + 18);
       currentY += headerHeight;
 
-      // Filtered entries (based on filter box) to print
+      // Filtered entries (based on filter box) to include in PDF
       const filterValue = filterInput.value.toLowerCase();
       const filtered = entries.filter(e => e.assetCode.toLowerCase().includes(filterValue));
 
-      // Generate each row
+      // For each filtered entry, draw a row
       filtered.forEach(entry => {
         drawRowBorder(currentY, rowHeight);
 
@@ -361,7 +360,7 @@
         // Asset Code
         const assetX = startX + 5;
         const assetY = currentY + 20;
-        const assetW_ = colAssetW - 10; 
+        const assetW_ = colAssetW - 10;
         const assetLines = doc.splitTextToSize(entry.assetCode, assetW_);
         doc.text(assetLines, assetX, assetY);
 
@@ -375,7 +374,7 @@
           const imgProps = doc.getImageProperties(entry.image);
           let iWidth  = imgProps.width;
           let iHeight = imgProps.height;
-          // Scale down to fit
+          // Scale down if needed
           const ratio = Math.min(maxImgWidth / iWidth, maxImgHeight / iHeight);
           iWidth  *= ratio;
           iHeight *= ratio;
@@ -400,7 +399,7 @@
         doc.text(remedLines, remedX, remedY);
 
         currentY += rowHeight;
-        // If near bottom, new page
+        // If near bottom of page, start a new page
         if (currentY > 740) {
           doc.addPage();
           currentY = 40;
@@ -419,10 +418,11 @@
         doc.line(startX + tableW, y,   startX + tableW, y + height);
       }
 
+      // Save PDF
       doc.save('entries.pdf');
     });
 
-    // On load, render once
+    // On page load, render once
     renderEntries();
   </script>
 </body>
