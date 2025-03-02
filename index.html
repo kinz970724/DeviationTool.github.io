@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Deviations Tracker</title>
+  <meta charset="UTF-8" />
+  <title>Deviations Tracker (Optimized)</title>
   <!-- Make pages scale nicely on phones -->
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
     /* Basic page layout */
     body {
@@ -90,12 +90,12 @@
   </style>
 </head>
 <body>
-  <h1>Deviations Tracker</h1>
+  <h1>Deviations Tracker (Optimized)</h1>
 
   <!-- 
-    We have a single <input> for the user to type or pick an asset code.
-    We attach a <datalist> for custom substring-based suggestions.
-  -->
+    Single <input> for asset code, attached to a <datalist>.
+    We'll dynamically filter the entire list of codes in JavaScript.
+   -->
   <label for="searchCodeInput">Asset Code (Search or type custom):</label>
   <input 
     type="text" 
@@ -103,10 +103,10 @@
     placeholder="e.g. 131-CON-01..."
     list="codeSuggestions"
   />
-  <!-- A datalist for suggestions. We'll fill it dynamically as user types. -->
+  <!-- A datalist for suggestions; we'll add <option> elements dynamically -->
   <datalist id="codeSuggestions"></datalist>
 
-  <!-- The Add Entry form: just the rest of fields -->
+  <!-- The Add Entry form -->
   <form id="entryForm">
     <label for="imageInput">Photo:</label>
     <input 
@@ -117,10 +117,20 @@
     >
 
     <label for="descriptionInput">Description:</label>
-    <textarea id="descriptionInput" rows="2" placeholder="Describe the asset" required></textarea>
+    <textarea 
+      id="descriptionInput" 
+      rows="2" 
+      placeholder="Describe the asset" 
+      required
+    ></textarea>
 
     <label for="remedialInput">Remedial Action:</label>
-    <textarea id="remedialInput" rows="2" placeholder="e.g. Fix, Replace" required></textarea>
+    <textarea 
+      id="remedialInput" 
+      rows="2" 
+      placeholder="e.g. Fix, Replace" 
+      required
+    ></textarea>
 
     <button type="submit">Add Entry</button>
   </form>
@@ -147,8 +157,29 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
   <script>
-    // We'll keep the complete list of asset codes from assetCodes.txt here:
-    let allCodes = [];
+    ////////////////////////////////////////////////////////////////////////////
+    // 1) Load asset codes & store them
+    ////////////////////////////////////////////////////////////////////////////
+
+    let allCodes = []; // We'll store all codes from assetCodes.txt here.
+    fetch('assetCodes.txt')
+      .then(res => {
+        if (!res.ok) {
+          throw new Error('Could not load assetCodes.txt');
+        }
+        return res.text();
+      })
+      .then(data => {
+        allCodes = data
+          .split('\n')
+          .map(line => line.trim())
+          .filter(line => line !== '');
+      })
+      .catch(err => console.error(err));
+
+    ////////////////////////////////////////////////////////////////////////////
+    // 2) Local Storage & Basic Vars
+    ////////////////////////////////////////////////////////////////////////////
 
     // Our array of entries, stored in localStorage
     let entries = JSON.parse(localStorage.getItem('myAssetEntries') || '[]');
@@ -163,60 +194,66 @@
     const entriesTableBody  = document.querySelector('#entriesTable tbody');
     const generatePdfButton = document.getElementById('generatePdf');
 
-    // 1) Load codes from assetCodes.txt (assuming this file is in the same folder)
-    fetch('assetCodes.txt')
-      .then(res => {
-        if (!res.ok) throw new Error('Failed to load assetCodes.txt');
-        return res.text();
-      })
-      .then(data => {
-        // parse lines, store in allCodes
-        allCodes = data
-          .split('\n')
-          .map(line => line.trim())
-          .filter(line => line !== '');
-      })
-      .catch(err => {
-        console.error('Failed to load assetCodes.txt', err);
-      });
+    ////////////////////////////////////////////////////////////////////////////
+    // 3) Debounce Helper to avoid lag
+    ////////////////////////////////////////////////////////////////////////////
+    function debounce(fn, delay) {
+      let timeout;
+      return (...args) => {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => fn(...args), delay);
+      };
+    }
 
-    // 2) Dynamically update the <datalist> suggestions based on the user input
+    ////////////////////////////////////////////////////////////////////////////
+    // 4) Updating the <datalist> suggestions (with limit)
+    ////////////////////////////////////////////////////////////////////////////
     function updateCodeSuggestions() {
       // Clear current <option> items
       codeSuggestions.innerHTML = '';
 
       const typed = searchCodeInput.value.trim().toLowerCase();
-      // If user typed nothing, we can show all codes (or show none if you prefer)
-      const matched = typed
-        ? allCodes.filter(code => code.toLowerCase().includes(typed))
-        : allCodes;
+      // Filter for substring match:
+      let matched = [];
+      if (typed) {
+        matched = allCodes.filter(code => code.toLowerCase().includes(typed));
+      } else {
+        matched = allCodes; 
+      }
 
-      matched.forEach(code => {
+      // Limit the number of suggestions to avoid huge DOM churn
+      const MAX_SUGGESTIONS = 50;
+      matched.slice(0, MAX_SUGGESTIONS).forEach(code => {
         const opt = document.createElement('option');
         opt.value = code;
         codeSuggestions.appendChild(opt);
       });
     }
 
-    // 3) Render the table (filtered by what's typed in searchCodeInput)
+    ////////////////////////////////////////////////////////////////////////////
+    // 5) Rendering the table with limit on displayed rows
+    ////////////////////////////////////////////////////////////////////////////
     function renderEntries() {
       entriesTableBody.innerHTML = '';
 
       const searchVal = searchCodeInput.value.trim().toLowerCase();
-      // If searchVal is empty => show all
-      // Otherwise, show only the ones that contain that substring (case-insensitive)
       let filteredEntries = entries;
+
+      // If searchVal is not empty, filter
       if (searchVal) {
         filteredEntries = entries.filter(e =>
           e.assetCode.toLowerCase().includes(searchVal)
         );
       }
 
-      // Build rows from filteredEntries
-      filteredEntries.forEach((entry, realIndex) => {
+      // Limit number of rows displayed to prevent huge re-renders
+      const MAX_ROWS = 50;
+      const rowsToShow = filteredEntries.slice(0, MAX_ROWS);
+
+      rowsToShow.forEach((entry, realIndex) => {
         const row = document.createElement('tr');
 
-        // Asset Code
+        // Asset Code (editable)
         const assetTd = document.createElement('td');
         assetTd.setAttribute('data-label', 'Asset Code');
         const assetArea = document.createElement('textarea');
@@ -226,7 +263,7 @@
         assetArea.onchange = () => {
           entries[realIndex].assetCode = assetArea.value;
           saveEntries();
-          // Possibly re-filter if you want real-time updates
+          // re-render if you want live filter updates:
           renderEntries();
         };
         assetTd.appendChild(assetArea);
@@ -240,7 +277,7 @@
         photoTd.appendChild(img);
         row.appendChild(photoTd);
 
-        // Description
+        // Description (editable)
         const descTd = document.createElement('td');
         descTd.setAttribute('data-label', 'Description');
         const descArea = document.createElement('textarea');
@@ -254,7 +291,7 @@
         descTd.appendChild(descArea);
         row.appendChild(descTd);
 
-        // Remedial
+        // Remedial (editable)
         const remTd = document.createElement('td');
         remTd.setAttribute('data-label', 'Remedial Action');
         const remArea = document.createElement('textarea');
@@ -268,15 +305,21 @@
         remTd.appendChild(remArea);
         row.appendChild(remTd);
 
-        // Actions
+        // Actions (Delete)
         const actionsTd = document.createElement('td');
         actionsTd.setAttribute('data-label', 'Actions');
         const deleteBtn = document.createElement('button');
         deleteBtn.textContent = 'Delete';
         deleteBtn.onclick = () => {
-          entries.splice(realIndex, 1);
-          saveEntries();
-          renderEntries();
+          // Find the original index of this entry in `entries` array
+          // Because `rowsToShow` is a slice, realIndex might not match the actual index
+          // We'll do a quick find:
+          const fullIndex = entries.indexOf(entry);
+          if (fullIndex !== -1) {
+            entries.splice(fullIndex, 1);
+            saveEntries();
+            renderEntries();
+          }
         };
         actionsTd.appendChild(deleteBtn);
         row.appendChild(actionsTd);
@@ -285,16 +328,20 @@
       });
     }
 
-    // 4) Save to localStorage
+    ////////////////////////////////////////////////////////////////////////////
+    // 6) Save to localStorage
+    ////////////////////////////////////////////////////////////////////////////
     function saveEntries() {
       localStorage.setItem('myAssetEntries', JSON.stringify(entries));
     }
 
-    // 5) Add new entry form submission
+    ////////////////////////////////////////////////////////////////////////////
+    // 7) Add new entry form submission
+    ////////////////////////////////////////////////////////////////////////////
     entryForm.addEventListener('submit', e => {
       e.preventDefault();
 
-      const code = searchCodeInput.value.trim(); // user can type partial or custom
+      const code = searchCodeInput.value.trim(); 
       const file = imageInput.files[0];
       const desc = descriptionInput.value.trim();
       const remd = remedialInput.value.trim();
@@ -329,15 +376,20 @@
       reader.readAsDataURL(file);
     });
 
-    // 6) Listen for input on searchCodeInput:
-    //    - Update datalist suggestions for substring match
-    //    - Filter the table
-    searchCodeInput.addEventListener('input', () => {
+    ////////////////////////////////////////////////////////////////////////////
+    // 8) Debounced Search Handling
+    ////////////////////////////////////////////////////////////////////////////
+    const handleSearch = debounce(() => {
       updateCodeSuggestions();
       renderEntries();
-    });
+    }, 300);
 
-    // 7) Generate PDF of the currently displayed (filtered) rows
+    // Attach our debounced search to the "input" event
+    searchCodeInput.addEventListener('input', handleSearch);
+
+    ////////////////////////////////////////////////////////////////////////////
+    // 9) Generate PDF for displayed rows
+    ////////////////////////////////////////////////////////////////////////////
     generatePdfButton.addEventListener('click', () => {
       const { jsPDF } = window.jspdf;
       const doc       = new jsPDF('p', 'pt', 'letter');
@@ -359,22 +411,21 @@
       const headerHeight = 30;
       drawRowBorder(currentY, headerHeight);
       doc.setFontSize(12);
-      doc.text('Asset',       startX + 5,                               currentY + 18);
-      doc.text('Photo',       startX + colAssetW + 5,                   currentY + 18);
-      doc.text('Description', startX + colAssetW + colPhotoW + 5,       currentY + 18);
-      doc.text('Remedial',    startX + colAssetW + colPhotoW + colDescW + 5, currentY + 18);
+      doc.text('Asset', startX + 5, currentY + 18);
+      doc.text('Photo', startX + colAssetW + 5, currentY + 18);
+      doc.text('Description', startX + colAssetW + colPhotoW + 5, currentY + 18);
+      doc.text('Remedial', startX + colAssetW + colPhotoW + colDescW + 5, currentY + 18);
       currentY += headerHeight;
 
-      // Filter exactly as in renderEntries
+      // For PDF, filter the entries the same way, but let's not limit to 50 here
       const searchVal = searchCodeInput.value.trim().toLowerCase();
       let filteredEntries = entries;
       if (searchVal) {
-        filteredEntries = entries.filter(e => 
+        filteredEntries = entries.filter(e =>
           e.assetCode.toLowerCase().includes(searchVal)
         );
       }
 
-      // Rows
       filteredEntries.forEach(entry => {
         drawRowBorder(currentY, rowHeight);
 
@@ -428,23 +479,23 @@
       });
 
       function drawRowBorder(y, height) {
-        doc.line(startX, y,             startX + tableW, y);
-        doc.line(startX, y + height,    startX + tableW, y + height);
-        doc.line(startX, y,             startX, y + height);
+        doc.line(startX, y, startX + tableW, y);
+        doc.line(startX, y + height, startX + tableW, y + height);
+        doc.line(startX, y, startX, y + height);
         doc.line(startX + colAssetW, y, startX + colAssetW, y + height);
         doc.line(startX + colAssetW + colPhotoW, y,
                  startX + colAssetW + colPhotoW, y + height);
         doc.line(startX + colAssetW + colPhotoW + colDescW, y,
                  startX + colAssetW + colPhotoW + colDescW, y + height);
-        doc.line(startX + tableW, y,    startX + tableW, y + height);
+        doc.line(startX + tableW, y, startX + tableW, y + height);
       }
 
       doc.save('entries.pdf');
     });
 
-    // 8) On page load, render once (to show existing localStorage entries).
-    //    We can also pre-populate the datalist with all codes if desired.
-    //    But we’ll do it only after fetch if user starts typing immediately.
+    ////////////////////////////////////////////////////////////////////////////
+    // 10) On page load, render once with any existing localStorage entries
+    ////////////////////////////////////////////////////////////////////////////
     renderEntries();
   </script>
 </body>
