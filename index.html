@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Deviations Tracker (With Table Filter)</title>
+  <title>Deviations Tracker (With Filter & PDF Page Integrity)</title>
   <!-- Make pages scale nicely on phones -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
@@ -110,7 +110,7 @@
   </style>
 </head>
 <body>
-  <h1>Deviations Tracker (With Table Filter)</h1>
+  <h1>Deviations Tracker (With Filter & PDF Page Integrity)</h1>
 
   <!-- Asset Code input with datalist -->
   <label for="searchCodeInput">Asset Code (Search or type custom):</label>
@@ -290,9 +290,8 @@
     ////////////////////////////////////////////////////////////////////////////
     function renderEntries() {
       entriesTableBody.innerHTML = '';
-      // Get filter text from search input
+      // Filter entries based on search input
       const filterText = searchCodeInput.value.trim().toLowerCase();
-      // If filter text exists, filter the entries by assetCode containing the text
       let rowsToShow = filterText 
         ? entries.filter(entry => entry.assetCode.toLowerCase().includes(filterText))
         : entries;
@@ -370,7 +369,7 @@
     }
 
     ////////////////////////////////////////////////////////////////////////////
-    // 7) Add new entry form
+    // 6) Add new entry form
     ////////////////////////////////////////////////////////////////////////////
     entryForm.addEventListener('submit', e => {
       e.preventDefault();
@@ -413,7 +412,7 @@
     });
 
     ////////////////////////////////////////////////////////////////////////////
-    // 8) Debounced search for datalist and table filter
+    // 7) Debounced search for datalist and table filter
     ////////////////////////////////////////////////////////////////////////////
     const handleSearch = debounce(() => {
       updateCodeSuggestions();
@@ -422,41 +421,65 @@
     searchCodeInput.addEventListener('input', handleSearch);
 
     ////////////////////////////////////////////////////////////////////////////
-    // 9) Generate PDF using jsPDF
+    // 8) Generate PDF using jsPDF ensuring complete rows on pages
     ////////////////////////////////////////////////////////////////////////////
     generatePdfButton.addEventListener('click', () => {
       const { jsPDF } = window.jspdf;
       const doc = new jsPDF('p', 'pt', 'letter');
-
-      const startX       = 40;
-      let currentY       = 40;
-      const colAssetW    = 70;
-      const colPhotoW    = 240;
-      const colDescW     = 150;
+      const pageHeight = doc.internal.pageSize.height;
+      const marginY = 40;
+      const startX = 40;
+      let currentY = marginY;
+      const colAssetW = 70;
+      const colPhotoW = 240;
+      const colDescW = 150;
       const colRemedialW = 110;
-      const tableW       = colAssetW + colPhotoW + colDescW + colRemedialW;
-      const rowHeight    = 130;
+      const tableW = colAssetW + colPhotoW + colDescW + colRemedialW;
+      const rowHeight = 130;
+      const headerHeight = 30;
 
+      // Function to draw table header and update currentY
+      function drawTableHeader() {
+        drawRowBorder(currentY, headerHeight);
+        doc.setFontSize(12);
+        doc.text('Asset', startX + 5, currentY + 18);
+        doc.text('Photo', startX + colAssetW + 5, currentY + 18);
+        doc.text('Description', startX + colAssetW + colPhotoW + 5, currentY + 18);
+        doc.text('Remedial', startX + colAssetW + colPhotoW + colDescW + 5, currentY + 18);
+        currentY += headerHeight;
+      }
+
+      // Function to draw row border
+      function drawRowBorder(y, height) {
+        doc.line(startX, y, startX + tableW, y);
+        doc.line(startX, y + height, startX + tableW, y + height);
+        doc.line(startX, y, startX, y + height);
+        doc.line(startX + colAssetW, y, startX + colAssetW, y + height);
+        doc.line(startX + colAssetW + colPhotoW, y, startX + colAssetW + colPhotoW, y + height);
+        doc.line(startX + colAssetW + colPhotoW + colDescW, y, startX + colAssetW + colPhotoW + colDescW, y + height);
+        doc.line(startX + tableW, y, startX + tableW, y + height);
+      }
+
+      // Draw title and header
       doc.setFontSize(14);
       doc.text('Asset Table', startX, currentY);
       currentY += 10;
+      drawTableHeader();
 
-      const headerHeight = 30;
-      drawRowBorder(currentY, headerHeight);
-      doc.setFontSize(12);
-      doc.text('Asset', startX + 5, currentY + 18);
-      doc.text('Photo', startX + colAssetW + 5, currentY + 18);
-      doc.text('Description', startX + colAssetW + colPhotoW + 5, currentY + 18);
-      doc.text('Remedial', startX + colAssetW + colPhotoW + colDescW + 5, currentY + 18);
-      currentY += headerHeight;
-
-      // Use filtered entries for PDF
+      // Get filtered entries for PDF generation
       const pdfEntries = entries.filter(entry => {
         const filterText = searchCodeInput.value.trim().toLowerCase();
         return filterText ? entry.assetCode.toLowerCase().includes(filterText) : true;
       });
 
       pdfEntries.forEach(entry => {
+        // Before drawing each row, check if the entire row fits on the current page.
+        if (currentY + rowHeight > pageHeight - marginY) {
+          doc.addPage();
+          currentY = marginY;
+          drawTableHeader();
+        }
+
         drawRowBorder(currentY, rowHeight);
         doc.setFontSize(10);
 
@@ -501,26 +524,13 @@
         doc.text(remedLines, remedX, remedY);
 
         currentY += rowHeight;
-        if (currentY > 740) {
-          doc.addPage();
-          currentY = 40;
-        }
       });
 
-      function drawRowBorder(y, height) {
-        doc.line(startX, y, startX + tableW, y);
-        doc.line(startX, y + height, startX + tableW, y + height);
-        doc.line(startX, y, startX, y + height);
-        doc.line(startX + colAssetW, y, startX + colAssetW, y + height);
-        doc.line(startX + colAssetW + colPhotoW, y, startX + colAssetW + colPhotoW, y + height);
-        doc.line(startX + colAssetW + colPhotoW + colDescW, y, startX + colAssetW + colPhotoW + colDescW, y + height);
-        doc.line(startX + tableW, y, startX + tableW, y + height);
-      }
       doc.save('entries.pdf');
     });
 
     ////////////////////////////////////////////////////////////////////////////
-    // 10) On load: Open DB and load entries
+    // 8) On load: Open DB and load entries
     ////////////////////////////////////////////////////////////////////////////
     openDatabase()
       .then(() => refreshEntries())
