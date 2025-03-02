@@ -94,20 +94,16 @@
 
   <!-- 
     We have a single <input> for the user to type or pick an asset code.
-    A <datalist> with suggestions from assetCodes.txt is attached so user sees "auto-complete".
-    
-    This same input is used for:
-      1) Searching/filtering the table in real-time.
-      2) Specifying the "code" for a new entry.
+    We attach a <datalist> for custom substring-based suggestions.
   -->
   <label for="searchCodeInput">Asset Code (Search or type custom):</label>
   <input 
     type="text" 
     id="searchCodeInput" 
     placeholder="e.g. 131-CON-01..."
-    list="codeSuggestions" 
+    list="codeSuggestions"
   />
-  <!-- A datalist for suggestions -->
+  <!-- A datalist for suggestions. We'll fill it dynamically as user types. -->
   <datalist id="codeSuggestions"></datalist>
 
   <!-- The Add Entry form: just the rest of fields -->
@@ -149,7 +145,11 @@
 
   <!-- jsPDF from CDN for PDF generation -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
   <script>
+    // We'll keep the complete list of asset codes from assetCodes.txt here:
+    let allCodes = [];
+
     // Our array of entries, stored in localStorage
     let entries = JSON.parse(localStorage.getItem('myAssetEntries') || '[]');
 
@@ -163,27 +163,42 @@
     const entriesTableBody  = document.querySelector('#entriesTable tbody');
     const generatePdfButton = document.getElementById('generatePdf');
 
-    // 1) Load codes from assetCodes.txt and populate <datalist>
+    // 1) Load codes from assetCodes.txt (assuming this file is in the same folder)
     fetch('assetCodes.txt')
-      .then(res => res.text())
+      .then(res => {
+        if (!res.ok) throw new Error('Failed to load assetCodes.txt');
+        return res.text();
+      })
       .then(data => {
-        const lines = data
+        // parse lines, store in allCodes
+        allCodes = data
           .split('\n')
           .map(line => line.trim())
           .filter(line => line !== '');
-
-        // For each code line, create an <option> in codeSuggestions
-        lines.forEach(line => {
-          const opt = document.createElement('option');
-          opt.value = line;
-          codeSuggestions.appendChild(opt);
-        });
       })
       .catch(err => {
         console.error('Failed to load assetCodes.txt', err);
       });
 
-    // 2) Render the table (filtered by what's typed in searchCodeInput)
+    // 2) Dynamically update the <datalist> suggestions based on the user input
+    function updateCodeSuggestions() {
+      // Clear current <option> items
+      codeSuggestions.innerHTML = '';
+
+      const typed = searchCodeInput.value.trim().toLowerCase();
+      // If user typed nothing, we can show all codes (or show none if you prefer)
+      const matched = typed
+        ? allCodes.filter(code => code.toLowerCase().includes(typed))
+        : allCodes;
+
+      matched.forEach(code => {
+        const opt = document.createElement('option');
+        opt.value = code;
+        codeSuggestions.appendChild(opt);
+      });
+    }
+
+    // 3) Render the table (filtered by what's typed in searchCodeInput)
     function renderEntries() {
       entriesTableBody.innerHTML = '';
 
@@ -270,12 +285,12 @@
       });
     }
 
-    // 3) Save to localStorage
+    // 4) Save to localStorage
     function saveEntries() {
       localStorage.setItem('myAssetEntries', JSON.stringify(entries));
     }
 
-    // 4) Add new entry
+    // 5) Add new entry form submission
     entryForm.addEventListener('submit', e => {
       e.preventDefault();
 
@@ -314,12 +329,15 @@
       reader.readAsDataURL(file);
     });
 
-    // 5) Real-time filter: every time user types in the code input, re-render
+    // 6) Listen for input on searchCodeInput:
+    //    - Update datalist suggestions for substring match
+    //    - Filter the table
     searchCodeInput.addEventListener('input', () => {
+      updateCodeSuggestions();
       renderEntries();
     });
 
-    // 6) Generate PDF of the currently displayed rows
+    // 7) Generate PDF of the currently displayed (filtered) rows
     generatePdfButton.addEventListener('click', () => {
       const { jsPDF } = window.jspdf;
       const doc       = new jsPDF('p', 'pt', 'letter');
@@ -341,13 +359,13 @@
       const headerHeight = 30;
       drawRowBorder(currentY, headerHeight);
       doc.setFontSize(12);
-      doc.text('Asset',       startX + 5,                              currentY + 18);
-      doc.text('Photo',       startX + colAssetW + 5,                  currentY + 18);
-      doc.text('Description', startX + colAssetW + colPhotoW + 5,      currentY + 18);
+      doc.text('Asset',       startX + 5,                               currentY + 18);
+      doc.text('Photo',       startX + colAssetW + 5,                   currentY + 18);
+      doc.text('Description', startX + colAssetW + colPhotoW + 5,       currentY + 18);
       doc.text('Remedial',    startX + colAssetW + colPhotoW + colDescW + 5, currentY + 18);
       currentY += headerHeight;
 
-      // Filter again as in renderEntries
+      // Filter exactly as in renderEntries
       const searchVal = searchCodeInput.value.trim().toLowerCase();
       let filteredEntries = entries;
       if (searchVal) {
@@ -410,22 +428,23 @@
       });
 
       function drawRowBorder(y, height) {
-        doc.line(startX, y,            startX + tableW, y);
-        doc.line(startX, y + height,   startX + tableW, y + height);
-        doc.line(startX, y,            startX, y + height);
-        doc.line(startX + colAssetW, y,   startX + colAssetW, y + height);
+        doc.line(startX, y,             startX + tableW, y);
+        doc.line(startX, y + height,    startX + tableW, y + height);
+        doc.line(startX, y,             startX, y + height);
+        doc.line(startX + colAssetW, y, startX + colAssetW, y + height);
         doc.line(startX + colAssetW + colPhotoW, y,
                  startX + colAssetW + colPhotoW, y + height);
         doc.line(startX + colAssetW + colPhotoW + colDescW, y,
                  startX + colAssetW + colPhotoW + colDescW, y + height);
-        doc.line(startX + tableW, y,   startX + tableW, y + height);
+        doc.line(startX + tableW, y,    startX + tableW, y + height);
       }
 
       doc.save('entries.pdf');
     });
 
-    // 7) On load, render once (in case there are existing localStorage entries)
-    //    We'll do it *after* we set up everything, so the user sees the table.
+    // 8) On page load, render once (to show existing localStorage entries).
+    //    We can also pre-populate the datalist with all codes if desired.
+    //    But we’ll do it only after fetch if user starts typing immediately.
     renderEntries();
   </script>
 </body>
