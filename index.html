@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Deviations Tracker (Cleared Filter)</title>
+  <title>Deviations Tracker (No Table Filter)</title>
   <!-- Make pages scale nicely on phones -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
@@ -121,12 +121,12 @@
   </style>
 </head>
 <body>
-  <h1>Deviations Tracker (Cleared Filter)</h1>
+  <h1>Deviations Tracker (No Table Filter)</h1>
 
   <!-- 
     Single <input> for asset code, attached to a <datalist>.
-    We'll dynamically filter the entire list of codes in JavaScript,
-    but now we will NOT filter the displayed table anymore.
+    We'll dynamically filter the code SUGGESTIONS in JavaScript,
+    but we do NOT filter the displayed table. 
   -->
   <label for="searchCodeInput">Asset Code (Search or type custom):</label>
   <input 
@@ -236,7 +236,7 @@
     }
 
     ////////////////////////////////////////////////////////////////////////////
-    // 4) Update <datalist> (limit suggestions) — NO table filtering
+    // 4) Update <datalist> (limit suggestions)
     ////////////////////////////////////////////////////////////////////////////
     function updateCodeSuggestions() {
       codeSuggestions.innerHTML = '';
@@ -263,7 +263,7 @@
     function renderEntries() {
       entriesTableBody.innerHTML = '';
       
-      // Show up to 50 rows, ignoring the typed search
+      // Show up to 50 rows
       const rowsToShow = entries.slice(0, 50);
 
       rowsToShow.forEach(entry => {
@@ -271,22 +271,22 @@
         // Real index in 'entries'
         const fullIndex = entries.indexOf(entry);
 
-        // Asset Code
+        // --- Asset Code ---
         const assetTd = document.createElement('td');
         assetTd.setAttribute('data-label', 'Asset Code');
         const assetArea = document.createElement('textarea');
         assetArea.value = entry.assetCode;
         assetArea.rows = 1;
         assetArea.style.width = '100%';
-        assetArea.onchange = () => {
+        // Save on each keystroke
+        assetArea.oninput = () => {
           entries[fullIndex].assetCode = assetArea.value;
           saveEntries();
-          renderEntries();
         };
         assetTd.appendChild(assetArea);
         row.appendChild(assetTd);
 
-        // Photo
+        // --- Photo ---
         const photoTd = document.createElement('td');
         photoTd.setAttribute('data-label', 'Photo');
         const img = document.createElement('img');
@@ -294,35 +294,37 @@
         photoTd.appendChild(img);
         row.appendChild(photoTd);
 
-        // Description
+        // --- Description ---
         const descTd = document.createElement('td');
         descTd.setAttribute('data-label', 'Description');
         const descArea = document.createElement('textarea');
         descArea.value = entry.description;
         descArea.rows = 2;
         descArea.style.width = '100%';
-        descArea.onchange = () => {
+        // Save on each keystroke
+        descArea.oninput = () => {
           entries[fullIndex].description = descArea.value;
           saveEntries();
         };
         descTd.appendChild(descArea);
         row.appendChild(descTd);
 
-        // Remedial
+        // --- Remedial ---
         const remTd = document.createElement('td');
         remTd.setAttribute('data-label', 'Remedial Action');
         const remArea = document.createElement('textarea');
         remArea.value = entry.remedial;
         remArea.rows = 2;
         remArea.style.width = '100%';
-        remArea.onchange = () => {
+        // Save on each keystroke
+        remArea.oninput = () => {
           entries[fullIndex].remedial = remArea.value;
           saveEntries();
         };
         remTd.appendChild(remArea);
         row.appendChild(remTd);
 
-        // Actions
+        // --- Actions ---
         const actionsTd = document.createElement('td');
         actionsTd.setAttribute('data-label', 'Actions');
         const deleteBtn = document.createElement('button');
@@ -347,7 +349,7 @@
     }
 
     ////////////////////////////////////////////////////////////////////////////
-    // 7) Add new entry form — do NOT clear search input
+    // 7) Add new entry form
     ////////////////////////////////////////////////////////////////////////////
     entryForm.addEventListener('submit', e => {
       e.preventDefault();
@@ -381,7 +383,7 @@
         });
         saveEntries();
 
-        // Do NOT clear the search input anymore.
+        // We do NOT clear the search input, so the user sees the typed code remain
         // searchCodeInput.value = '';
 
         // Re-render the table (unfiltered).
@@ -394,18 +396,17 @@
     });
 
     ////////////////////////////////////////////////////////////////////////////
-    // 8) Debounced search for suggestions ONLY
+    // 8) Debounced search for the datalist ONLY
     ////////////////////////////////////////////////////////////////////////////
     const handleSearch = debounce(() => {
       updateCodeSuggestions();
-      // Do NOT re-render with a filter (table remains unfiltered).
-      // renderEntries();  // <- we no longer call this here
+      // Do not filter the table on input, only update suggestions
     }, 1000);
 
     searchCodeInput.addEventListener('input', handleSearch);
 
     ////////////////////////////////////////////////////////////////////////////
-    // 9) Generate PDF (no changes needed)
+    // 9) Generate PDF
     ////////////////////////////////////////////////////////////////////////////
     generatePdfButton.addEventListener('click', () => {
       const { jsPDF } = window.jspdf;
