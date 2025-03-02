@@ -2,10 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Deviations Tracker (No Table Filter)</title>
+  <title>Deviations Tracker (With Table Filter)</title>
   <!-- Make pages scale nicely on phones -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-
   <style>
     /* Subtle gradient background */
     body {
@@ -16,23 +15,19 @@
       margin-right: auto;
       background: linear-gradient(to bottom right, #f0f0f0, #ffffff);
     }
-
     h1, h2 {
       text-align: center;
       margin-top: 10px;
       margin-bottom: 10px;
     }
-
     form, .buttons {
       margin: 20px 0;
     }
-
     label {
       display: block;
       margin: 5px 0 2px;
       font-weight: bold;
     }
-
     select, input, button, textarea {
       margin: 5px 0;
       width: 100%;
@@ -42,11 +37,9 @@
       border-radius: 4px;
       border: 1px solid #ccc;
     }
-
     textarea {
       resize: vertical;
     }
-
     button {
       cursor: pointer;
       border: none;
@@ -59,7 +52,6 @@
     button:hover {
       background-color: #005fab;
     }
-
     table {
       border-collapse: collapse;
       width: 100%;
@@ -79,19 +71,16 @@
     th {
       background: #f9f9f9;
     }
-
     /* Hover effect for table rows */
     tbody tr:hover {
       background-color: #fafafa;
     }
-
     img {
       max-width: 120px;
       height: auto;
       display: block;
       margin: 0 auto;
     }
-
     /* Responsive table for smaller screens */
     @media (max-width: 600px) {
       table, thead, tbody, th, td, tr {
@@ -121,49 +110,21 @@
   </style>
 </head>
 <body>
-  <h1>Deviations Tracker (No Table Filter)</h1>
+  <h1>Deviations Tracker (With Table Filter)</h1>
 
-  <!-- 
-    Single <input> for asset code, attached to a <datalist>.
-    We'll dynamically filter the code SUGGESTIONS in JavaScript,
-    but we do NOT filter the displayed table. 
-  -->
+  <!-- Asset Code input with datalist -->
   <label for="searchCodeInput">Asset Code (Search or type custom):</label>
-  <input 
-    type="text"
-    id="searchCodeInput"
-    placeholder="e.g. 131-CON-01..."
-    list="codeSuggestions"
-  />
-  <!-- A datalist for suggestions; we'll add <option> elements dynamically -->
+  <input type="text" id="searchCodeInput" placeholder="e.g. 131-CON-01..." list="codeSuggestions" />
   <datalist id="codeSuggestions"></datalist>
 
   <!-- The Add Entry form -->
   <form id="entryForm">
     <label for="imageInput">Photo:</label>
-    <input 
-      type="file" 
-      id="imageInput" 
-      accept="image/*;capture=camera"
-      required
-    >
-
+    <input type="file" id="imageInput" accept="image/*;capture=camera" required>
     <label for="descriptionInput">Description:</label>
-    <textarea 
-      id="descriptionInput" 
-      rows="2" 
-      placeholder="Describe the asset" 
-      required
-    ></textarea>
-
+    <textarea id="descriptionInput" rows="2" placeholder="Describe the asset" required></textarea>
     <label for="remedialInput">Remedial Action:</label>
-    <textarea 
-      id="remedialInput" 
-      rows="2" 
-      placeholder="e.g. Fix, Replace" 
-      required
-    ></textarea>
-
+    <textarea id="remedialInput" rows="2" placeholder="e.g. Fix, Replace" required></textarea>
     <button type="submit">Add Entry</button>
   </form>
 
@@ -190,9 +151,89 @@
 
   <script>
     ////////////////////////////////////////////////////////////////////////////
+    // IndexedDB Storage Functions
+    ////////////////////////////////////////////////////////////////////////////
+    const DB_NAME = 'DeviationsDB';
+    const DB_VERSION = 1;
+    const STORE_NAME = 'entries';
+    let db;
+    let entries = []; // In-memory array of all entries
+
+    function openDatabase() {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
+        request.onerror = event => {
+          console.error("Database error:", event.target.error);
+          reject(event.target.error);
+        };
+        request.onupgradeneeded = event => {
+          db = event.target.result;
+          if (!db.objectStoreNames.contains(STORE_NAME)) {
+            db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+          }
+        };
+        request.onsuccess = event => {
+          db = event.target.result;
+          resolve(db);
+        };
+      });
+    }
+
+    function getAllEntriesFromDB() {
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction([STORE_NAME], 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.getAll();
+        request.onsuccess = event => resolve(event.target.result);
+        request.onerror = event => reject(event.target.error);
+      });
+    }
+
+    function addEntryToDB(entry) {
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.add(entry);
+        request.onsuccess = event => {
+          entry.id = event.target.result; // assign generated id
+          resolve(entry);
+        };
+        request.onerror = event => reject(event.target.error);
+      });
+    }
+
+    function updateEntryInDB(entry) {
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.put(entry);
+        request.onsuccess = () => resolve();
+        request.onerror = event => reject(event.target.error);
+      });
+    }
+
+    function removeEntryFromDB(id) {
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.delete(id);
+        request.onsuccess = () => resolve();
+        request.onerror = event => reject(event.target.error);
+      });
+    }
+
+    async function refreshEntries() {
+      try {
+        entries = await getAllEntriesFromDB();
+        renderEntries();
+      } catch (err) {
+        console.error("Error refreshing entries:", err);
+      }
+    }
+
+    ////////////////////////////////////////////////////////////////////////////
     // 1) Load asset codes & store them
     ////////////////////////////////////////////////////////////////////////////
-
     let allCodes = [];
     fetch('assetCodes.txt')
       .then(res => {
@@ -202,19 +243,13 @@
         return res.text();
       })
       .then(data => {
-        allCodes = data
-          .split('\n')
-          .map(line => line.trim())
-          .filter(line => line !== '');
+        allCodes = data.split('\n').map(line => line.trim()).filter(line => line !== '');
       })
       .catch(err => console.error(err));
 
     ////////////////////////////////////////////////////////////////////////////
-    // 2) Local Storage & Basic Vars
+    // 2) DOM elements
     ////////////////////////////////////////////////////////////////////////////
-    let entries = JSON.parse(localStorage.getItem('myAssetEntries') || '[]');
-
-    // DOM elements
     const searchCodeInput   = document.getElementById('searchCodeInput');
     const codeSuggestions   = document.getElementById('codeSuggestions');
     const entryForm         = document.getElementById('entryForm');
@@ -240,15 +275,8 @@
     ////////////////////////////////////////////////////////////////////////////
     function updateCodeSuggestions() {
       codeSuggestions.innerHTML = '';
-
       const typed = searchCodeInput.value.trim().toLowerCase();
-      let matched = [];
-      if (typed) {
-        matched = allCodes.filter(code => code.toLowerCase().includes(typed));
-      } else {
-        matched = allCodes;
-      }
-
+      let matched = typed ? allCodes.filter(code => code.toLowerCase().includes(typed)) : allCodes;
       const MAX_SUGGESTIONS = 50;
       matched.slice(0, MAX_SUGGESTIONS).forEach(code => {
         const opt = document.createElement('option');
@@ -258,35 +286,37 @@
     }
 
     ////////////////////////////////////////////////////////////////////////////
-    // 5) Render the table WITHOUT filtering
+    // 5) Render the table with filtering
     ////////////////////////////////////////////////////////////////////////////
     function renderEntries() {
       entriesTableBody.innerHTML = '';
-      
-      // Show up to 50 rows
-      const rowsToShow = entries.slice(0, 50);
+      // Get filter text from search input
+      const filterText = searchCodeInput.value.trim().toLowerCase();
+      // If filter text exists, filter the entries by assetCode containing the text
+      let rowsToShow = filterText 
+        ? entries.filter(entry => entry.assetCode.toLowerCase().includes(filterText))
+        : entries;
+      // Limit to 50 rows
+      rowsToShow = rowsToShow.slice(0, 50);
 
       rowsToShow.forEach(entry => {
         const row = document.createElement('tr');
-        // Real index in 'entries'
-        const fullIndex = entries.indexOf(entry);
 
-        // --- Asset Code ---
+        // Asset Code
         const assetTd = document.createElement('td');
         assetTd.setAttribute('data-label', 'Asset Code');
         const assetArea = document.createElement('textarea');
         assetArea.value = entry.assetCode;
         assetArea.rows = 1;
         assetArea.style.width = '100%';
-        // Save on each keystroke
         assetArea.oninput = () => {
-          entries[fullIndex].assetCode = assetArea.value;
-          saveEntries();
+          entry.assetCode = assetArea.value;
+          updateEntryInDB(entry).catch(err => console.error("Error updating entry:", err));
         };
         assetTd.appendChild(assetArea);
         row.appendChild(assetTd);
 
-        // --- Photo ---
+        // Photo
         const photoTd = document.createElement('td');
         photoTd.setAttribute('data-label', 'Photo');
         const img = document.createElement('img');
@@ -294,45 +324,43 @@
         photoTd.appendChild(img);
         row.appendChild(photoTd);
 
-        // --- Description ---
+        // Description
         const descTd = document.createElement('td');
         descTd.setAttribute('data-label', 'Description');
         const descArea = document.createElement('textarea');
         descArea.value = entry.description;
         descArea.rows = 2;
         descArea.style.width = '100%';
-        // Save on each keystroke
         descArea.oninput = () => {
-          entries[fullIndex].description = descArea.value;
-          saveEntries();
+          entry.description = descArea.value;
+          updateEntryInDB(entry).catch(err => console.error("Error updating entry:", err));
         };
         descTd.appendChild(descArea);
         row.appendChild(descTd);
 
-        // --- Remedial ---
+        // Remedial Action
         const remTd = document.createElement('td');
         remTd.setAttribute('data-label', 'Remedial Action');
         const remArea = document.createElement('textarea');
         remArea.value = entry.remedial;
         remArea.rows = 2;
         remArea.style.width = '100%';
-        // Save on each keystroke
         remArea.oninput = () => {
-          entries[fullIndex].remedial = remArea.value;
-          saveEntries();
+          entry.remedial = remArea.value;
+          updateEntryInDB(entry).catch(err => console.error("Error updating entry:", err));
         };
         remTd.appendChild(remArea);
         row.appendChild(remTd);
 
-        // --- Actions ---
+        // Actions
         const actionsTd = document.createElement('td');
         actionsTd.setAttribute('data-label', 'Actions');
         const deleteBtn = document.createElement('button');
         deleteBtn.textContent = 'Delete';
         deleteBtn.onclick = () => {
-          entries.splice(fullIndex, 1);
-          saveEntries();
-          renderEntries();
+          removeEntryFromDB(entry.id)
+            .then(() => refreshEntries())
+            .catch(err => console.error("Error deleting entry:", err));
         };
         actionsTd.appendChild(deleteBtn);
         row.appendChild(actionsTd);
@@ -342,18 +370,10 @@
     }
 
     ////////////////////////////////////////////////////////////////////////////
-    // 6) Save to localStorage
-    ////////////////////////////////////////////////////////////////////////////
-    function saveEntries() {
-      localStorage.setItem('myAssetEntries', JSON.stringify(entries));
-    }
-
-    ////////////////////////////////////////////////////////////////////////////
     // 7) Add new entry form
     ////////////////////////////////////////////////////////////////////////////
     entryForm.addEventListener('submit', e => {
       e.preventDefault();
-
       const code = searchCodeInput.value.trim();
       const file = imageInput.files[0];
       const desc = descriptionInput.value.trim();
@@ -375,58 +395,52 @@
       const reader = new FileReader();
       reader.onload = function(evt) {
         const imageData = evt.target.result;
-        entries.push({
+        const newEntry = {
           assetCode: code,
           image: imageData,
           description: desc,
-          remedial: remd
-        });
-        saveEntries();
-
-        // We do NOT clear the search input, so the user sees the typed code remain
-        // searchCodeInput.value = '';
-
-        // Re-render the table (unfiltered).
-        renderEntries();
-
-        // Clear the form fields.
-        entryForm.reset();
+          remedial: remd,
+          timestamp: Date.now()
+        };
+        addEntryToDB(newEntry)
+          .then(() => {
+            refreshEntries();
+            entryForm.reset();
+          })
+          .catch(err => console.error("Error adding entry:", err));
       };
       reader.readAsDataURL(file);
     });
 
     ////////////////////////////////////////////////////////////////////////////
-    // 8) Debounced search for the datalist ONLY
+    // 8) Debounced search for datalist and table filter
     ////////////////////////////////////////////////////////////////////////////
     const handleSearch = debounce(() => {
       updateCodeSuggestions();
-      // Do not filter the table on input, only update suggestions
+      renderEntries(); // re-render table with filter applied
     }, 1000);
-
     searchCodeInput.addEventListener('input', handleSearch);
 
     ////////////////////////////////////////////////////////////////////////////
-    // 9) Generate PDF
+    // 9) Generate PDF using jsPDF
     ////////////////////////////////////////////////////////////////////////////
     generatePdfButton.addEventListener('click', () => {
       const { jsPDF } = window.jspdf;
       const doc = new jsPDF('p', 'pt', 'letter');
 
-      // We'll use a bigger column for photos
       const startX       = 40;
       let currentY       = 40;
-      const colAssetW    = 70;   // narrower text
-      const colPhotoW    = 240;  // bigger for image
+      const colAssetW    = 70;
+      const colPhotoW    = 240;
       const colDescW     = 150;
       const colRemedialW = 110;
-      const tableW       = colAssetW + colPhotoW + colDescW + colRemedialW; 
-      const rowHeight    = 130;  // more vertical space for the photo
+      const tableW       = colAssetW + colPhotoW + colDescW + colRemedialW;
+      const rowHeight    = 130;
 
       doc.setFontSize(14);
       doc.text('Asset Table', startX, currentY);
       currentY += 10;
 
-      // Header
       const headerHeight = 30;
       drawRowBorder(currentY, headerHeight);
       doc.setFontSize(12);
@@ -436,12 +450,14 @@
       doc.text('Remedial', startX + colAssetW + colPhotoW + colDescW + 5, currentY + 18);
       currentY += headerHeight;
 
-      // We no longer filter the entries for PDF by search input
-      const pdfEntries = entries; // just use all entries
+      // Use filtered entries for PDF
+      const pdfEntries = entries.filter(entry => {
+        const filterText = searchCodeInput.value.trim().toLowerCase();
+        return filterText ? entry.assetCode.toLowerCase().includes(filterText) : true;
+      });
 
       pdfEntries.forEach(entry => {
         drawRowBorder(currentY, rowHeight);
-
         doc.setFontSize(10);
 
         // Asset Code
@@ -452,17 +468,17 @@
         doc.text(assetLines, assetX, assetY);
 
         // Photo
-        const imgX        = startX + colAssetW + 5;
+        const imgX = startX + colAssetW + 5;
         const maxImgWidth = colPhotoW - 10;
         const maxImgHeight = rowHeight - 10;
         try {
-          const isPng  = (entry.image || '').toLowerCase().includes('image/png');
+          const isPng = (entry.image || '').toLowerCase().includes('image/png');
           const format = isPng ? 'PNG' : 'JPEG';
-          const props  = doc.getImageProperties(entry.image);
-          let iWidth   = props.width;
-          let iHeight  = props.height;
-          const ratio  = Math.min(maxImgWidth / iWidth, maxImgHeight / iHeight);
-          iWidth  *= ratio;
+          const props = doc.getImageProperties(entry.image);
+          let iWidth = props.width;
+          let iHeight = props.height;
+          const ratio = Math.min(maxImgWidth / iWidth, maxImgHeight / iHeight);
+          iWidth *= ratio;
           iHeight *= ratio;
           const yOffset = (rowHeight - iHeight) / 2;
           doc.addImage(entry.image, format, imgX, currentY + yOffset, iWidth, iHeight);
@@ -477,7 +493,7 @@
         const descLines = doc.splitTextToSize(entry.description, descW_);
         doc.text(descLines, descX, descY);
 
-        // Remedial
+        // Remedial Action
         const remedX = startX + colAssetW + colPhotoW + colDescW + 5;
         const remedY = currentY + 20;
         const remedW_ = colRemedialW - 10;
@@ -496,20 +512,19 @@
         doc.line(startX, y + height, startX + tableW, y + height);
         doc.line(startX, y, startX, y + height);
         doc.line(startX + colAssetW, y, startX + colAssetW, y + height);
-        doc.line(startX + colAssetW + colPhotoW, y,
-                 startX + colAssetW + colPhotoW, y + height);
-        doc.line(startX + colAssetW + colPhotoW + colDescW, y,
-                 startX + colAssetW + colPhotoW + colDescW, y + height);
+        doc.line(startX + colAssetW + colPhotoW, y, startX + colAssetW + colPhotoW, y + height);
+        doc.line(startX + colAssetW + colPhotoW + colDescW, y, startX + colAssetW + colPhotoW + colDescW, y + height);
         doc.line(startX + tableW, y, startX + tableW, y + height);
       }
-
       doc.save('entries.pdf');
     });
 
     ////////////////////////////////////////////////////////////////////////////
-    // 10) Render on load
+    // 10) On load: Open DB and load entries
     ////////////////////////////////////////////////////////////////////////////
-    renderEntries();
+    openDatabase()
+      .then(() => refreshEntries())
+      .catch(err => console.error("Failed to open database:", err));
   </script>
 </body>
 </html>
