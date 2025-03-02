@@ -2,21 +2,25 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Deviations Tracker (Optimized)</title>
+  <title>Deviations Tracker (Wide Photos)</title>
   <!-- Make pages scale nicely on phones -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
   <style>
-    /* Basic page layout */
+    /* Add a subtle gradient background to the body */
     body {
       font-family: Arial, sans-serif;
       margin: 20px;
       max-width: 1000px;
       margin-left: auto;
       margin-right: auto;
+      background: linear-gradient(to bottom right, #f0f0f0, #ffffff);
     }
 
     h1, h2 {
       text-align: center;
+      margin-top: 10px;
+      margin-bottom: 10px;
     }
 
     form, .buttons {
@@ -35,25 +39,52 @@
       box-sizing: border-box;
       font-size: 1rem;
       padding: 6px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
     }
 
     textarea {
       resize: vertical;
     }
 
+    button {
+      cursor: pointer;
+      border: none;
+      background-color: #0078d7;
+      color: white;
+      padding: 8px 12px;
+      font-size: 1rem;
+      border-radius: 4px;
+    }
+    button:hover {
+      background-color: #005fab;
+    }
+
     table {
       border-collapse: collapse;
       width: 100%;
       margin-top: 20px;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+      border-radius: 4px;
+      overflow: hidden;
     }
-    table, th, td {
-      border: 1px solid #ccc;
+    table thead tr {
+      background-color: #f7f7f7;
+    }
+    th, td {
+      border: 1px solid #ddd;
       padding: 10px;
       vertical-align: top;
     }
     th {
       background: #f9f9f9;
     }
+
+    /* Hover effect for table rows */
+    tbody tr:hover {
+      background-color: #fafafa;
+    }
+
     img {
       max-width: 120px;
       height: auto;
@@ -90,23 +121,17 @@
   </style>
 </head>
 <body>
-  <h1>Deviations Tracker (Optimized)</h1>
+  <h1>Deviations Tracker (Wide Photo in PDF)</h1>
 
-  <!-- 
-    Single <input> for asset code, attached to a <datalist>.
-    We'll dynamically filter the entire list of codes in JavaScript.
-   -->
   <label for="searchCodeInput">Asset Code (Search or type custom):</label>
   <input 
-    type="text" 
-    id="searchCodeInput" 
+    type="text"
+    id="searchCodeInput"
     placeholder="e.g. 131-CON-01..."
     list="codeSuggestions"
   />
-  <!-- A datalist for suggestions; we'll add <option> elements dynamically -->
   <datalist id="codeSuggestions"></datalist>
 
-  <!-- The Add Entry form -->
   <form id="entryForm">
     <label for="imageInput">Photo:</label>
     <input 
@@ -195,7 +220,7 @@
     const generatePdfButton = document.getElementById('generatePdf');
 
     ////////////////////////////////////////////////////////////////////////////
-    // 3) Debounce Helper to avoid lag
+    // 3) Debounce Helper (1 second delay)
     ////////////////////////////////////////////////////////////////////////////
     function debounce(fn, delay) {
       let timeout;
@@ -206,22 +231,20 @@
     }
 
     ////////////////////////////////////////////////////////////////////////////
-    // 4) Updating the <datalist> suggestions (with limit)
+    // 4) Update <datalist> (limit suggestions)
     ////////////////////////////////////////////////////////////////////////////
     function updateCodeSuggestions() {
-      // Clear current <option> items
       codeSuggestions.innerHTML = '';
 
       const typed = searchCodeInput.value.trim().toLowerCase();
-      // Filter for substring match:
       let matched = [];
       if (typed) {
         matched = allCodes.filter(code => code.toLowerCase().includes(typed));
       } else {
-        matched = allCodes; 
+        matched = allCodes;
       }
 
-      // Limit the number of suggestions to avoid huge DOM churn
+      // Limit the number of suggestions
       const MAX_SUGGESTIONS = 50;
       matched.slice(0, MAX_SUGGESTIONS).forEach(code => {
         const opt = document.createElement('option');
@@ -231,7 +254,7 @@
     }
 
     ////////////////////////////////////////////////////////////////////////////
-    // 5) Rendering the table with limit on displayed rows
+    // 5) Render the table with limited rows
     ////////////////////////////////////////////////////////////////////////////
     function renderEntries() {
       entriesTableBody.innerHTML = '';
@@ -239,21 +262,21 @@
       const searchVal = searchCodeInput.value.trim().toLowerCase();
       let filteredEntries = entries;
 
-      // If searchVal is not empty, filter
       if (searchVal) {
         filteredEntries = entries.filter(e =>
           e.assetCode.toLowerCase().includes(searchVal)
         );
       }
 
-      // Limit number of rows displayed to prevent huge re-renders
       const MAX_ROWS = 50;
       const rowsToShow = filteredEntries.slice(0, MAX_ROWS);
 
-      rowsToShow.forEach((entry, realIndex) => {
+      rowsToShow.forEach(entry => {
         const row = document.createElement('tr');
+        // Real index in 'entries'
+        const fullIndex = entries.indexOf(entry);
 
-        // Asset Code (editable)
+        // Asset Code
         const assetTd = document.createElement('td');
         assetTd.setAttribute('data-label', 'Asset Code');
         const assetArea = document.createElement('textarea');
@@ -261,9 +284,8 @@
         assetArea.rows = 1;
         assetArea.style.width = '100%';
         assetArea.onchange = () => {
-          entries[realIndex].assetCode = assetArea.value;
+          entries[fullIndex].assetCode = assetArea.value;
           saveEntries();
-          // re-render if you want live filter updates:
           renderEntries();
         };
         assetTd.appendChild(assetArea);
@@ -277,7 +299,7 @@
         photoTd.appendChild(img);
         row.appendChild(photoTd);
 
-        // Description (editable)
+        // Description
         const descTd = document.createElement('td');
         descTd.setAttribute('data-label', 'Description');
         const descArea = document.createElement('textarea');
@@ -285,13 +307,13 @@
         descArea.rows = 2;
         descArea.style.width = '100%';
         descArea.onchange = () => {
-          entries[realIndex].description = descArea.value;
+          entries[fullIndex].description = descArea.value;
           saveEntries();
         };
         descTd.appendChild(descArea);
         row.appendChild(descTd);
 
-        // Remedial (editable)
+        // Remedial
         const remTd = document.createElement('td');
         remTd.setAttribute('data-label', 'Remedial Action');
         const remArea = document.createElement('textarea');
@@ -299,27 +321,21 @@
         remArea.rows = 2;
         remArea.style.width = '100%';
         remArea.onchange = () => {
-          entries[realIndex].remedial = remArea.value;
+          entries[fullIndex].remedial = remArea.value;
           saveEntries();
         };
         remTd.appendChild(remArea);
         row.appendChild(remTd);
 
-        // Actions (Delete)
+        // Actions
         const actionsTd = document.createElement('td');
         actionsTd.setAttribute('data-label', 'Actions');
         const deleteBtn = document.createElement('button');
         deleteBtn.textContent = 'Delete';
         deleteBtn.onclick = () => {
-          // Find the original index of this entry in `entries` array
-          // Because `rowsToShow` is a slice, realIndex might not match the actual index
-          // We'll do a quick find:
-          const fullIndex = entries.indexOf(entry);
-          if (fullIndex !== -1) {
-            entries.splice(fullIndex, 1);
-            saveEntries();
-            renderEntries();
-          }
+          entries.splice(fullIndex, 1);
+          saveEntries();
+          renderEntries();
         };
         actionsTd.appendChild(deleteBtn);
         row.appendChild(actionsTd);
@@ -336,12 +352,12 @@
     }
 
     ////////////////////////////////////////////////////////////////////////////
-    // 7) Add new entry form submission
+    // 7) Add new entry form
     ////////////////////////////////////////////////////////////////////////////
     entryForm.addEventListener('submit', e => {
       e.preventDefault();
 
-      const code = searchCodeInput.value.trim(); 
+      const code = searchCodeInput.value.trim();
       const file = imageInput.files[0];
       const desc = descriptionInput.value.trim();
       const remd = remedialInput.value.trim();
@@ -370,38 +386,40 @@
         });
         saveEntries();
         renderEntries();
-        // Clear form
+        // Clear the form
         entryForm.reset();
       };
       reader.readAsDataURL(file);
     });
 
     ////////////////////////////////////////////////////////////////////////////
-    // 8) Debounced Search Handling
+    // 8) Debounced search (1s delay)
     ////////////////////////////////////////////////////////////////////////////
     const handleSearch = debounce(() => {
       updateCodeSuggestions();
       renderEntries();
-    }, 300);
+    }, 1000);
 
-    // Attach our debounced search to the "input" event
     searchCodeInput.addEventListener('input', handleSearch);
 
     ////////////////////////////////////////////////////////////////////////////
-    // 9) Generate PDF for displayed rows
+    // 9) Generate PDF, wide photo column
     ////////////////////////////////////////////////////////////////////////////
     generatePdfButton.addEventListener('click', () => {
       const { jsPDF } = window.jspdf;
-      const doc       = new jsPDF('p', 'pt', 'letter');
+      const doc = new jsPDF('p', 'pt', 'letter');
 
+      // We'll use a bigger column for photos
       const startX       = 40;
       let currentY       = 40;
-      const colAssetW    = 90;
-      const colPhotoW    = 130;
-      const colDescW     = 180;
-      const colRemedialW = 140;
-      const tableW       = colAssetW + colPhotoW + colDescW + colRemedialW;
-      const rowHeight    = 100;
+      // New narrower columns for text, bigger for photo:
+      const colAssetW    = 70;  // narrower
+      const colPhotoW    = 240; // wider
+      const colDescW     = 150;
+      const colRemedialW = 110;
+      const tableW       = colAssetW + colPhotoW + colDescW + colRemedialW; 
+      // Increase rowHeight for bigger images
+      const rowHeight    = 130;
 
       doc.setFontSize(14);
       doc.text('Asset Table', startX, currentY);
@@ -417,7 +435,7 @@
       doc.text('Remedial', startX + colAssetW + colPhotoW + colDescW + 5, currentY + 18);
       currentY += headerHeight;
 
-      // For PDF, filter the entries the same way, but let's not limit to 50 here
+      // Filter entries for the PDF
       const searchVal = searchCodeInput.value.trim().toLowerCase();
       let filteredEntries = entries;
       if (searchVal) {
@@ -426,6 +444,7 @@
         );
       }
 
+      // Render in PDF
       filteredEntries.forEach(entry => {
         drawRowBorder(currentY, rowHeight);
 
@@ -435,20 +454,21 @@
         const assetX = startX + 5;
         const assetY = currentY + 20;
         const assetW_ = colAssetW - 10;
-        const lines = doc.splitTextToSize(entry.assetCode, assetW_);
-        doc.text(lines, assetX, assetY);
+        const assetLines = doc.splitTextToSize(entry.assetCode, assetW_);
+        doc.text(assetLines, assetX, assetY);
 
         // Photo
-        const imgX = startX + colAssetW + 5;
-        const maxImgWidth  = colPhotoW - 10;
+        const imgX        = startX + colAssetW + 5;
+        const maxImgWidth = colPhotoW - 10;
+        // Subtracting 10 for a little margin
         const maxImgHeight = rowHeight - 10;
         try {
           const isPng  = (entry.image || '').toLowerCase().includes('image/png');
           const format = isPng ? 'PNG' : 'JPEG';
-          const props = doc.getImageProperties(entry.image);
-          let iWidth  = props.width;
-          let iHeight = props.height;
-          const ratio = Math.min(maxImgWidth / iWidth, maxImgHeight / iHeight);
+          const props  = doc.getImageProperties(entry.image);
+          let iWidth   = props.width;
+          let iHeight  = props.height;
+          const ratio  = Math.min(maxImgWidth / iWidth, maxImgHeight / iHeight);
           iWidth  *= ratio;
           iHeight *= ratio;
           const yOffset = (rowHeight - iHeight) / 2;
@@ -472,6 +492,7 @@
         doc.text(remedLines, remedX, remedY);
 
         currentY += rowHeight;
+        // If we exceed page length, add a new page
         if (currentY > 740) {
           doc.addPage();
           currentY = 40;
@@ -494,7 +515,7 @@
     });
 
     ////////////////////////////////////////////////////////////////////////////
-    // 10) On page load, render once with any existing localStorage entries
+    // 10) Render on load
     ////////////////////////////////////////////////////////////////////////////
     renderEntries();
   </script>
