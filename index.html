@@ -126,7 +126,7 @@
   <!-- 
     Single <input> for asset code, attached to a <datalist>.
     We'll dynamically filter the entire list of codes in JavaScript,
-    but we now RESET the filter after each add to avoid confusion.
+    but NOT the table.
   -->
   <label for="searchCodeInput">Asset Code (Search or type custom):</label>
   <input 
@@ -258,22 +258,14 @@
     }
 
     ////////////////////////////////////////////////////////////////////////////
-    // 5) Render the table with limited rows
+    // 5) Render the table (ALWAYS show all entries, no filter by search box)
     ////////////////////////////////////////////////////////////////////////////
     function renderEntries() {
       entriesTableBody.innerHTML = '';
 
-      const searchVal = searchCodeInput.value.trim().toLowerCase();
-      let filteredEntries = entries;
-
-      if (searchVal) {
-        filteredEntries = entries.filter(e =>
-          e.assetCode.toLowerCase().includes(searchVal)
-        );
-      }
-
+      // No filtering by search box here — show them all
       const MAX_ROWS = 50;
-      const rowsToShow = filteredEntries.slice(0, MAX_ROWS);
+      const rowsToShow = entries.slice(0, MAX_ROWS);
 
       rowsToShow.forEach(entry => {
         const row = document.createElement('tr');
@@ -390,7 +382,7 @@
         });
         saveEntries();
 
-        // ===== KEY FIX: CLEAR the search input so you see everything again! =====
+        // CLEAR the search input (but we do NOT re-filter the table)
         searchCodeInput.value = '';
 
         // Re-render the table with no search filter
@@ -403,17 +395,17 @@
     });
 
     ////////////////////////////////////////////////////////////////////////////
-    // 8) Debounced search (1s delay)
+    // 8) Debounced search (1s delay) – only updates suggestions, NOT the table
     ////////////////////////////////////////////////////////////////////////////
     const handleSearch = debounce(() => {
       updateCodeSuggestions();
-      renderEntries();
+      // Notice: we do NOT call renderEntries() anymore
     }, 1000);
 
     searchCodeInput.addEventListener('input', handleSearch);
 
     ////////////////////////////////////////////////////////////////////////////
-    // 9) Generate PDF, wide photo column
+    // 9) Generate PDF (ALWAYS shows all entries, not filtered by search box)
     ////////////////////////////////////////////////////////////////////////////
     generatePdfButton.addEventListener('click', () => {
       const { jsPDF } = window.jspdf;
@@ -443,16 +435,8 @@
       doc.text('Remedial', startX + colAssetW + colPhotoW + colDescW + 5, currentY + 18);
       currentY += headerHeight;
 
-      // Filter entries for the PDF
-      const searchVal = searchCodeInput.value.trim().toLowerCase();
-      let filteredEntries = entries;
-      if (searchVal) {
-        filteredEntries = entries.filter(e =>
-          e.assetCode.toLowerCase().includes(searchVal)
-        );
-      }
-
-      filteredEntries.forEach(entry => {
+      // Instead of filtering by search, use ALL entries
+      entries.forEach(entry => {
         drawRowBorder(currentY, rowHeight);
 
         doc.setFontSize(10);
