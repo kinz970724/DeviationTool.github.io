@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Deviations Tracker (Wide Photos)</title>
+  <title>Deviations Tracker (Cleared Filter)</title>
   <!-- Make pages scale nicely on phones -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
   <style>
-    /* Add a subtle gradient background to the body */
+    /* Subtle gradient background */
     body {
       font-family: Arial, sans-serif;
       margin: 20px;
@@ -121,8 +121,13 @@
   </style>
 </head>
 <body>
-  <h1>Deviations Tracker (Wide Photo in PDF)</h1>
+  <h1>Deviations Tracker (Cleared Filter)</h1>
 
+  <!-- 
+    Single <input> for asset code, attached to a <datalist>.
+    We'll dynamically filter the entire list of codes in JavaScript,
+    but we now RESET the filter after each add to avoid confusion.
+  -->
   <label for="searchCodeInput">Asset Code (Search or type custom):</label>
   <input 
     type="text"
@@ -130,8 +135,10 @@
     placeholder="e.g. 131-CON-01..."
     list="codeSuggestions"
   />
+  <!-- A datalist for suggestions; we'll add <option> elements dynamically -->
   <datalist id="codeSuggestions"></datalist>
 
+  <!-- The Add Entry form -->
   <form id="entryForm">
     <label for="imageInput">Photo:</label>
     <input 
@@ -186,7 +193,7 @@
     // 1) Load asset codes & store them
     ////////////////////////////////////////////////////////////////////////////
 
-    let allCodes = []; // We'll store all codes from assetCodes.txt here.
+    let allCodes = [];
     fetch('assetCodes.txt')
       .then(res => {
         if (!res.ok) {
@@ -205,8 +212,6 @@
     ////////////////////////////////////////////////////////////////////////////
     // 2) Local Storage & Basic Vars
     ////////////////////////////////////////////////////////////////////////////
-
-    // Our array of entries, stored in localStorage
     let entries = JSON.parse(localStorage.getItem('myAssetEntries') || '[]');
 
     // DOM elements
@@ -244,7 +249,6 @@
         matched = allCodes;
       }
 
-      // Limit the number of suggestions
       const MAX_SUGGESTIONS = 50;
       matched.slice(0, MAX_SUGGESTIONS).forEach(code => {
         const opt = document.createElement('option');
@@ -385,7 +389,13 @@
           remedial: remd
         });
         saveEntries();
+
+        // ===== KEY FIX: CLEAR the search input so you see everything again! =====
+        searchCodeInput.value = '';
+
+        // Re-render the table with no search filter
         renderEntries();
+
         // Clear the form
         entryForm.reset();
       };
@@ -412,14 +422,12 @@
       // We'll use a bigger column for photos
       const startX       = 40;
       let currentY       = 40;
-      // New narrower columns for text, bigger for photo:
-      const colAssetW    = 70;  // narrower
-      const colPhotoW    = 240; // wider
+      const colAssetW    = 70;   // narrower text
+      const colPhotoW    = 240;  // bigger for image
       const colDescW     = 150;
       const colRemedialW = 110;
       const tableW       = colAssetW + colPhotoW + colDescW + colRemedialW; 
-      // Increase rowHeight for bigger images
-      const rowHeight    = 130;
+      const rowHeight    = 130;  // more vertical space for the photo
 
       doc.setFontSize(14);
       doc.text('Asset Table', startX, currentY);
@@ -444,7 +452,6 @@
         );
       }
 
-      // Render in PDF
       filteredEntries.forEach(entry => {
         drawRowBorder(currentY, rowHeight);
 
@@ -460,7 +467,6 @@
         // Photo
         const imgX        = startX + colAssetW + 5;
         const maxImgWidth = colPhotoW - 10;
-        // Subtracting 10 for a little margin
         const maxImgHeight = rowHeight - 10;
         try {
           const isPng  = (entry.image || '').toLowerCase().includes('image/png');
@@ -492,7 +498,6 @@
         doc.text(remedLines, remedX, remedY);
 
         currentY += rowHeight;
-        // If we exceed page length, add a new page
         if (currentY > 740) {
           doc.addPage();
           currentY = 40;
