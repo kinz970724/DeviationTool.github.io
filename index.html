@@ -126,7 +126,8 @@
   <!-- 
     Single <input> for asset code, attached to a <datalist>.
     We'll dynamically filter the entire list of codes in JavaScript,
-    but NOT the table.
+    and also filter the table's displayed rows by typed value.
+    BUT we'll only clear it with a dedicated button.
   -->
   <label for="searchCodeInput">Asset Code (Search or type custom):</label>
   <input 
@@ -168,6 +169,8 @@
   </form>
 
   <div class="buttons">
+    <!-- Clear Filter Button -->
+    <button id="clearFilter">Clear Filter</button>
     <button id="generatePdf">Generate PDF</button>
   </div>
 
@@ -222,6 +225,7 @@
     const descriptionInput  = document.getElementById('descriptionInput');
     const remedialInput     = document.getElementById('remedialInput');
     const entriesTableBody  = document.querySelector('#entriesTable tbody');
+    const clearFilterButton = document.getElementById('clearFilter');
     const generatePdfButton = document.getElementById('generatePdf');
 
     ////////////////////////////////////////////////////////////////////////////
@@ -258,14 +262,22 @@
     }
 
     ////////////////////////////////////////////////////////////////////////////
-    // 5) Render the table (ALWAYS show all entries, no filter by search box)
+    // 5) Render the table — filtered by search code (until user clears)
     ////////////////////////////////////////////////////////////////////////////
     function renderEntries() {
       entriesTableBody.innerHTML = '';
 
-      // No filtering by search box here — show them all
+      const searchVal = searchCodeInput.value.trim().toLowerCase();
+      let filteredEntries = entries;
+      if (searchVal) {
+        filteredEntries = entries.filter(e =>
+          e.assetCode.toLowerCase().includes(searchVal)
+        );
+      }
+
+      // Show up to 50 rows
       const MAX_ROWS = 50;
-      const rowsToShow = entries.slice(0, MAX_ROWS);
+      const rowsToShow = filteredEntries.slice(0, MAX_ROWS);
 
       rowsToShow.forEach(entry => {
         const row = document.createElement('tr');
@@ -382,10 +394,10 @@
         });
         saveEntries();
 
-        // CLEAR the search input (but we do NOT re-filter the table)
-        searchCodeInput.value = '';
+        // DO NOT clear the searchCodeInput here. Let user do it manually.
+        // searchCodeInput.value = '';
 
-        // Re-render the table with no search filter
+        // Re-render the table (this will still filter by the current typed code).
         renderEntries();
 
         // Clear the form
@@ -395,62 +407,86 @@
     });
 
     ////////////////////////////////////////////////////////////////////////////
-    // 8) Debounced search (1s delay) – only updates suggestions, NOT the table
+    // 8) Debounced search (1s delay) – updates suggestions + re-renders table
     ////////////////////////////////////////////////////////////////////////////
     const handleSearch = debounce(() => {
       updateCodeSuggestions();
-      // Notice: we do NOT call renderEntries() anymore
+      renderEntries();
     }, 1000);
 
     searchCodeInput.addEventListener('input', handleSearch);
 
     ////////////////////////////////////////////////////////////////////////////
-    // 9) Generate PDF (ALWAYS shows all entries, not filtered by search box)
+    // 9) Clear Filter button
+    ////////////////////////////////////////////////////////////////////////////
+    clearFilterButton.addEventListener('click', () => {
+      searchCodeInput.value = '';
+      updateCodeSuggestions(); // show all suggestions
+      renderEntries();         // show all table rows
+    });
+
+    ////////////////////////////////////////////////////////////////////////////
+    // 10) Generate PDF: center the table & rename heading to "Findings"
     ////////////////////////////////////////////////////////////////////////////
     generatePdfButton.addEventListener('click', () => {
       const { jsPDF } = window.jspdf;
       const doc = new jsPDF('p', 'pt', 'letter');
 
-      // We'll use a bigger column for photos
-      const startX       = 40;
-      let currentY       = 40;
+      const docWidth = doc.internal.pageSize.getWidth();
+      let currentY   = 40;
+
+      // Column widths:
       const colAssetW    = 70;   // narrower text
       const colPhotoW    = 240;  // bigger for image
       const colDescW     = 150;
       const colRemedialW = 110;
       const tableW       = colAssetW + colPhotoW + colDescW + colRemedialW; 
-      const rowHeight    = 130;  // more vertical space for the photo
+      
+      // Center X position for entire table:
+      const startX    = (docWidth - tableW) / 2;
+      const rowHeight = 130;  // more vertical space for the photo
 
+      // Title in center
       doc.setFontSize(14);
-      doc.text('Asset Table', startX, currentY);
-      currentY += 10;
+      doc.text('Findings', docWidth / 2, currentY, { align: 'center' });
+      currentY += 20;
 
-      // Header
+      // Table header
       const headerHeight = 30;
       drawRowBorder(currentY, headerHeight);
       doc.setFontSize(12);
-      doc.text('Asset', startX + 5, currentY + 18);
-      doc.text('Photo', startX + colAssetW + 5, currentY + 18);
-      doc.text('Description', startX + colAssetW + colPhotoW + 5, currentY + 18);
-      doc.text('Remedial', startX + colAssetW + colPhotoW + colDescW + 5, currentY + 18);
+      doc.text('Asset',  startX + 5,                        currentY + 18);
+      doc.text('Photo',  startX + colAssetW + 5,            currentY + 18);
+      doc.text('Description', 
+               startX + colAssetW + colPhotoW + 5,          currentY + 18);
+      doc.text('Remedial', 
+               startX + colAssetW + colPhotoW + colDescW + 5, currentY + 18);
       currentY += headerHeight;
 
-      // Instead of filtering by search, use ALL entries
-      entries.forEach(entry => {
+      // If table is currently filtered, let's only print filtered results:
+      const searchVal = searchCodeInput.value.trim().toLowerCase();
+      let filteredEntries = entries;
+      if (searchVal) {
+        filteredEntries = entries.filter(e =>
+          e.assetCode.toLowerCase().includes(searchVal)
+        );
+      }
+
+      filteredEntries.forEach(entry => {
         drawRowBorder(currentY, rowHeight);
 
         doc.setFontSize(10);
 
         // Asset Code
-        const assetX = startX + 5;
-        const assetY = currentY + 20;
-        const assetW_ = colAssetW - 10;
-        const assetLines = doc.splitTextToSize(entry.assetCode, assetW_);
-        doc.text(assetLines, assetX, assetY);
+        const assetX   = startX + 5;
+        const assetY   = currentY + 20;
+        const assetW_  = colAssetW - 10;
+        const assetTxt = doc.splitTextToSize(entry.assetCode, assetW_);
+        doc.text(assetTxt, assetX, assetY);
 
         // Photo
-        const imgX        = startX + colAssetW + 5;
-        const maxImgWidth = colPhotoW - 10;
+        const imgX         = startX + colAssetW + 5;
+        const maxImgWidth  = colPhotoW - 10;
         const maxImgHeight = rowHeight - 10;
         try {
           const isPng  = (entry.image || '').toLowerCase().includes('image/png');
@@ -468,43 +504,54 @@
         }
 
         // Description
-        const descX = startX + colAssetW + colPhotoW + 5;
-        const descY = currentY + 20;
-        const descW_ = colDescW - 10;
-        const descLines = doc.splitTextToSize(entry.description, descW_);
-        doc.text(descLines, descX, descY);
+        const descX   = startX + colAssetW + colPhotoW + 5;
+        const descY   = currentY + 20;
+        const descW_  = colDescW - 10;
+        const descTxt = doc.splitTextToSize(entry.description, descW_);
+        doc.text(descTxt, descX, descY);
 
         // Remedial
-        const remedX = startX + colAssetW + colPhotoW + colDescW + 5;
-        const remedY = currentY + 20;
-        const remedW_ = colRemedialW - 10;
-        const remedLines = doc.splitTextToSize(entry.remedial, remedW_);
-        doc.text(remedLines, remedX, remedY);
+        const remedX   = startX + colAssetW + colPhotoW + colDescW + 5;
+        const remedY   = currentY + 20;
+        const remedW_  = colRemedialW - 10;
+        const remedTxt = doc.splitTextToSize(entry.remedial, remedW_);
+        doc.text(remedTxt, remedX, remedY);
 
         currentY += rowHeight;
+        // Make a new page if we go beyond ~740 pt (letter size ~792 pt)
         if (currentY > 740) {
           doc.addPage();
           currentY = 40;
+          // Re-draw the header on the new page
+          doc.setFontSize(12);
+          drawRowBorder(currentY, headerHeight);
+          doc.text('Asset',  startX + 5,                        currentY + 18);
+          doc.text('Photo',  startX + colAssetW + 5,            currentY + 18);
+          doc.text('Description', 
+                  startX + colAssetW + colPhotoW + 5,           currentY + 18);
+          doc.text('Remedial', 
+                  startX + colAssetW + colPhotoW + colDescW + 5, currentY + 18);
+          currentY += headerHeight;
         }
       });
 
       function drawRowBorder(y, height) {
-        doc.line(startX, y, startX + tableW, y);
-        doc.line(startX, y + height, startX + tableW, y + height);
-        doc.line(startX, y, startX, y + height);
-        doc.line(startX + colAssetW, y, startX + colAssetW, y + height);
+        doc.line(startX, y,              startX + tableW, y);
+        doc.line(startX, y + height,     startX + tableW, y + height);
+        doc.line(startX, y,              startX, y + height);
+        doc.line(startX + colAssetW, y,  startX + colAssetW, y + height);
         doc.line(startX + colAssetW + colPhotoW, y,
                  startX + colAssetW + colPhotoW, y + height);
         doc.line(startX + colAssetW + colPhotoW + colDescW, y,
                  startX + colAssetW + colPhotoW + colDescW, y + height);
-        doc.line(startX + tableW, y, startX + tableW, y + height);
+        doc.line(startX + tableW, y,     startX + tableW, y + height);
       }
 
-      doc.save('entries.pdf');
+      doc.save('findings.pdf');
     });
 
     ////////////////////////////////////////////////////////////////////////////
-    // 10) Render on load
+    // 11) Render on load
     ////////////////////////////////////////////////////////////////////////////
     renderEntries();
   </script>
