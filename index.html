@@ -5,8 +5,7 @@
   <title>Asset Deviation Tracker</title>
   <!-- Make pages scale nicely on phones -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <!-- Include the docx library from unpkg -->
-  <script src="https://unpkg.com/docx@7.8.0/build/index.js"></script>
+  <!-- Removed DOCX library reference -->
   <style>
     /* Global styling with gradient background and emojis */
     body {
@@ -156,7 +155,7 @@
   <div class="buttons">
     <button id="generatePdf">Generate PDF</button>
     <button id="exportCsv">Export CSV</button>
-    <button id="exportDocx">Export DOCX</button>
+    <!-- Removed Export DOCX button -->
   </div>
 
   <h2>Existing Entries</h2>
@@ -289,9 +288,6 @@
       const entriesTableBody  = document.querySelector('#entriesTable tbody');
       const generatePdfButton = document.getElementById('generatePdf');
       const exportCsvButton   = document.getElementById('exportCsv');
-      const exportDocxButton  = document.getElementById('exportDocx');
-
-      console.log("exportDocxButton element:", exportDocxButton);
 
       ////////////////////////////////////////////////////////////////////////////
       // 3) Debounce Helper (1 second delay)
@@ -571,111 +567,6 @@
         });
 
         doc.save('deviation_tracker.pdf');
-      });
-
-      ////////////////////////////////////////////////////////////////////////////
-      // 9) Helper: Convert base64 string to ArrayBuffer
-      ////////////////////////////////////////////////////////////////////////////
-      function base64ToArrayBuffer(base64) {
-        const binaryString = window.atob(base64);
-        const len = binaryString.length;
-        const bytes = new Uint8Array(len);
-        for (let i = 0; i < len; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
-        }
-        return bytes.buffer;
-      }
-
-      ////////////////////////////////////////////////////////////////////////////
-      // 10) Export DOCX function using the docx library
-      ////////////////////////////////////////////////////////////////////////////
-      exportDocxButton.addEventListener('click', async () => {
-        console.log("Export DOCX button clicked.");
-        try {
-          const { Document, Packer, Paragraph, Table, TableRow, TableCell, ImageRun } = window.docx;
-          // Build a header row for the table.
-          const tableRows = [];
-          tableRows.push(new TableRow({
-              children: [
-                  new TableCell({ children: [new Paragraph("Asset Code")] }),
-                  new TableCell({ children: [new Paragraph("Photo")] }),
-                  new TableCell({ children: [new Paragraph("Deviation")] }),
-                  new TableCell({ children: [new Paragraph("Remedial Action")] }),
-                  new TableCell({ children: [new Paragraph("Criticality")] }),
-                  new TableCell({ children: [new Paragraph("Timestamp")] }),
-              ]
-          }));
-
-          // For each entry, create a table row.
-          entries.forEach(entry => {
-              let base64Data = "";
-              if (entry.image && entry.image.includes(",")) {
-                  base64Data = entry.image.split(",")[1];
-              } else {
-                  base64Data = entry.image;
-              }
-              // Convert base64 string to an ArrayBuffer.
-              const arrayBuffer = base64ToArrayBuffer(base64Data);
-              // Create an ImageRun for the photo.
-              const imageParagraph = new Paragraph({
-                  children: [
-                      new ImageRun({
-                          data: arrayBuffer,
-                          transformation: {
-                              width: 150,
-                              height: 150,
-                          }
-                      })
-                  ]
-              });
-              tableRows.push(new TableRow({
-                  children: [
-                      new TableCell({ children: [new Paragraph(entry.assetCode)] }),
-                      new TableCell({ children: [imageParagraph] }),
-                      new TableCell({ children: [new Paragraph(entry.deviation)] }),
-                      new TableCell({ children: [new Paragraph(entry.remedial)] }),
-                      new TableCell({ children: [new Paragraph(entry.criticality)] }),
-                      new TableCell({ children: [new Paragraph(new Date(entry.timestamp).toLocaleString())] }),
-                  ]
-              }));
-          });
-
-          // Create the table.
-          const table = new Table({
-              rows: tableRows,
-              width: {
-                  size: 100,
-                  type: "pct",
-              },
-          });
-
-          // Create the document with a title and the table.
-          const doc = new Document({
-              sections: [{
-                  properties: {},
-                  children: [
-                      new Paragraph({
-                          text: "Deviation Table",
-                          heading: "Heading1",
-                          alignment: "center"
-                      }),
-                      table,
-                  ]
-              }]
-          });
-
-          // Generate the document as a Blob and trigger a download.
-          const blob = await Packer.toBlob(doc);
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = "deviation_tracker.docx";
-          a.click();
-          URL.revokeObjectURL(url);
-          console.log("DOCX export completed.");
-        } catch (err) {
-          console.error("Error exporting DOCX:", err);
-        }
       });
 
       ////////////////////////////////////////////////////////////////////////////
