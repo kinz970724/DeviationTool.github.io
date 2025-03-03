@@ -586,6 +586,7 @@
     // 10) Export DOCX function using the docx library
     ////////////////////////////////////////////////////////////////////////////
     exportDocxButton.addEventListener('click', async () => {
+      console.log("Export DOCX button clicked.");
       const { Document, Packer, Paragraph, Table, TableRow, TableCell, ImageRun } = window.docx;
 
       // Build a header row for the table.
@@ -609,14 +610,14 @@
           } else {
               base64Data = entry.image;
           }
-          // Convert base64 string to an ArrayBuffer then wrap in a Uint8Array.
+          // Convert base64 string to an ArrayBuffer.
           const arrayBuffer = base64ToArrayBuffer(base64Data);
-          const imageData = new Uint8Array(arrayBuffer);
 
+          // Create an ImageRun for the photo.
           const imageParagraph = new Paragraph({
               children: [
                   new ImageRun({
-                      data: imageData,
+                      data: arrayBuffer,  // Pass the ArrayBuffer directly
                       transformation: {
                           width: 150,
                           height: 150,
