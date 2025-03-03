@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Deviations Tracker (With Filter & PDF Page Integrity)</title>
+  <title>Asset Deviation Tracker</title>
   <!-- Make pages scale nicely on phones -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
@@ -110,7 +110,7 @@
   </style>
 </head>
 <body>
-  <h1>Deviations Tracker (With Filter & PDF Page Integrity)</h1>
+  <h1>Asset Deviation Tracker</h1>
 
   <!-- Asset Code input with datalist -->
   <label for="searchCodeInput">Asset Code (Search or type custom):</label>
@@ -121,8 +121,18 @@
   <form id="entryForm">
     <label for="imageInput">Photo:</label>
     <input type="file" id="imageInput" accept="image/*;capture=camera" required>
-    <label for="descriptionInput">Description:</label>
-    <textarea id="descriptionInput" rows="2" placeholder="Describe the asset" required></textarea>
+    
+    <label for="deviationInput">Deviation:</label>
+    <textarea id="deviationInput" rows="2" placeholder="Describe the deviation" required></textarea>
+    
+    <label for="criticalityInput">Criticality:</label>
+    <select id="criticalityInput" required>
+      <option value="">Select Criticality</option>
+      <option value="Low">Low</option>
+      <option value="Medium">Medium</option>
+      <option value="High">High</option>
+    </select>
+    
     <label for="remedialInput">Remedial Action:</label>
     <textarea id="remedialInput" rows="2" placeholder="e.g. Fix, Replace" required></textarea>
     <button type="submit">Add Entry</button>
@@ -138,8 +148,9 @@
       <tr>
         <th>Asset Code</th>
         <th>Photo</th>
-        <th>Description</th>
+        <th>Deviation</th>
         <th>Remedial Action</th>
+        <th>Criticality</th>
         <th>Actions</th>
       </tr>
     </thead>
@@ -254,7 +265,8 @@
     const codeSuggestions   = document.getElementById('codeSuggestions');
     const entryForm         = document.getElementById('entryForm');
     const imageInput        = document.getElementById('imageInput');
-    const descriptionInput  = document.getElementById('descriptionInput');
+    const deviationInput    = document.getElementById('deviationInput');
+    const criticalityInput  = document.getElementById('criticalityInput');
     const remedialInput     = document.getElementById('remedialInput');
     const entriesTableBody  = document.querySelector('#entriesTable tbody');
     const generatePdfButton = document.getElementById('generatePdf');
@@ -323,19 +335,19 @@
         photoTd.appendChild(img);
         row.appendChild(photoTd);
 
-        // Description
-        const descTd = document.createElement('td');
-        descTd.setAttribute('data-label', 'Description');
-        const descArea = document.createElement('textarea');
-        descArea.value = entry.description;
-        descArea.rows = 2;
-        descArea.style.width = '100%';
-        descArea.oninput = () => {
-          entry.description = descArea.value;
+        // Deviation
+        const deviationTd = document.createElement('td');
+        deviationTd.setAttribute('data-label', 'Deviation');
+        const deviationArea = document.createElement('textarea');
+        deviationArea.value = entry.deviation;
+        deviationArea.rows = 2;
+        deviationArea.style.width = '100%';
+        deviationArea.oninput = () => {
+          entry.deviation = deviationArea.value;
           updateEntryInDB(entry).catch(err => console.error("Error updating entry:", err));
         };
-        descTd.appendChild(descArea);
-        row.appendChild(descTd);
+        deviationTd.appendChild(deviationArea);
+        row.appendChild(deviationTd);
 
         // Remedial Action
         const remTd = document.createElement('td');
@@ -351,15 +363,31 @@
         remTd.appendChild(remArea);
         row.appendChild(remTd);
 
+        // Criticality
+        const criticalityTd = document.createElement('td');
+        criticalityTd.setAttribute('data-label', 'Criticality');
+        const criticalityArea = document.createElement('textarea');
+        criticalityArea.value = entry.criticality;
+        criticalityArea.rows = 1;
+        criticalityArea.style.width = '100%';
+        criticalityArea.oninput = () => {
+          entry.criticality = criticalityArea.value;
+          updateEntryInDB(entry).catch(err => console.error("Error updating entry:", err));
+        };
+        criticalityTd.appendChild(criticalityArea);
+        row.appendChild(criticalityTd);
+
         // Actions
         const actionsTd = document.createElement('td');
         actionsTd.setAttribute('data-label', 'Actions');
         const deleteBtn = document.createElement('button');
         deleteBtn.textContent = 'Delete';
         deleteBtn.onclick = () => {
-          removeEntryFromDB(entry.id)
-            .then(() => refreshEntries())
-            .catch(err => console.error("Error deleting entry:", err));
+          if (confirm("Are you sure you want to delete this entry?")) {
+            removeEntryFromDB(entry.id)
+              .then(() => refreshEntries())
+              .catch(err => console.error("Error deleting entry:", err));
+          }
         };
         actionsTd.appendChild(deleteBtn);
         row.appendChild(actionsTd);
@@ -375,7 +403,8 @@
       e.preventDefault();
       const code = searchCodeInput.value.trim();
       const file = imageInput.files[0];
-      const desc = descriptionInput.value.trim();
+      const deviation = deviationInput.value.trim();
+      const criticality = criticalityInput.value.trim();
       const remd = remedialInput.value.trim();
 
       if (!code) {
@@ -386,8 +415,8 @@
         alert('Please select a photo.');
         return;
       }
-      if (!desc || !remd) {
-        alert('Please fill out the Description and Remedial fields.');
+      if (!deviation || !criticality || !remd) {
+        alert('Please fill out all fields (Deviation, Criticality, and Remedial Action).');
         return;
       }
 
@@ -397,8 +426,9 @@
         const newEntry = {
           assetCode: code,
           image: imageData,
-          description: desc,
+          deviation: deviation,
           remedial: remd,
+          criticality: criticality,
           timestamp: Date.now()
         };
         addEntryToDB(newEntry)
@@ -430,11 +460,14 @@
       const marginY = 40;
       const startX = 40;
       let currentY = marginY;
-      const colAssetW = 70;
-      const colPhotoW = 240;
-      const colDescW = 150;
-      const colRemedialW = 110;
-      const tableW = colAssetW + colPhotoW + colDescW + colRemedialW;
+      
+      // Define new column widths for the 5-column table (Photo, Deviation, Remedial, Criticality)
+      const colAssetW = 60;
+      const colPhotoW = 120;
+      const colDeviationW = 120;
+      const colRemedialW = 120;
+      const colCriticalityW = 60;
+      const tableW = colAssetW + colPhotoW + colDeviationW + colRemedialW + colCriticalityW;
       const rowHeight = 130;
       const headerHeight = 30;
 
@@ -444,8 +477,9 @@
         doc.setFontSize(12);
         doc.text('Asset', startX + 5, currentY + 18);
         doc.text('Photo', startX + colAssetW + 5, currentY + 18);
-        doc.text('Description', startX + colAssetW + colPhotoW + 5, currentY + 18);
-        doc.text('Remedial', startX + colAssetW + colPhotoW + colDescW + 5, currentY + 18);
+        doc.text('Deviation', startX + colAssetW + colPhotoW + 5, currentY + 18);
+        doc.text('Remedial', startX + colAssetW + colPhotoW + colDeviationW + 5, currentY + 18);
+        doc.text('Criticality', startX + colAssetW + colPhotoW + colDeviationW + colRemedialW + 5, currentY + 18);
         currentY += headerHeight;
       }
 
@@ -456,7 +490,8 @@
         doc.line(startX, y, startX, y + height);
         doc.line(startX + colAssetW, y, startX + colAssetW, y + height);
         doc.line(startX + colAssetW + colPhotoW, y, startX + colAssetW + colPhotoW, y + height);
-        doc.line(startX + colAssetW + colPhotoW + colDescW, y, startX + colAssetW + colPhotoW + colDescW, y + height);
+        doc.line(startX + colAssetW + colPhotoW + colDeviationW, y, startX + colAssetW + colPhotoW + colDeviationW, y + height);
+        doc.line(startX + colAssetW + colPhotoW + colDeviationW + colRemedialW, y, startX + colAssetW + colPhotoW + colDeviationW + colRemedialW, y + height);
         doc.line(startX + tableW, y, startX + tableW, y + height);
       }
 
@@ -509,19 +544,26 @@
           console.error('Image error:', err);
         }
 
-        // Description
-        const descX = startX + colAssetW + colPhotoW + 5;
-        const descY = currentY + 20;
-        const descW_ = colDescW - 10;
-        const descLines = doc.splitTextToSize(entry.description, descW_);
-        doc.text(descLines, descX, descY);
+        // Deviation
+        const deviationX = startX + colAssetW + colPhotoW + 5;
+        const deviationY = currentY + 20;
+        const deviationW_ = colDeviationW - 10;
+        const deviationLines = doc.splitTextToSize(entry.deviation, deviationW_);
+        doc.text(deviationLines, deviationX, deviationY);
 
         // Remedial Action
-        const remedX = startX + colAssetW + colPhotoW + colDescW + 5;
+        const remedX = startX + colAssetW + colPhotoW + colDeviationW + 5;
         const remedY = currentY + 20;
         const remedW_ = colRemedialW - 10;
         const remedLines = doc.splitTextToSize(entry.remedial, remedW_);
         doc.text(remedLines, remedX, remedY);
+
+        // Criticality
+        const criticalX = startX + colAssetW + colPhotoW + colDeviationW + colRemedialW + 5;
+        const criticalY = currentY + 20;
+        const criticalW_ = colCriticalityW - 10;
+        const criticalLines = doc.splitTextToSize(entry.criticality, criticalW_);
+        doc.text(criticalLines, criticalX, criticalY);
 
         currentY += rowHeight;
       });
@@ -530,11 +572,11 @@
     });
 
     ////////////////////////////////////////////////////////////////////////////
-    // 8) On load: Open DB and load entries
+    // 9) On load: Open DB and load entries
     ////////////////////////////////////////////////////////////////////////////
     openDatabase()
       .then(() => refreshEntries())
       .catch(err => console.error("Failed to open database:", err));
   </script>
 </body>
-</html> 
+</html>
