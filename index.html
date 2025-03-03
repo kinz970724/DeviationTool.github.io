@@ -455,18 +455,24 @@
     ////////////////////////////////////////////////////////////////////////////
     generatePdfButton.addEventListener('click', () => {
       const { jsPDF } = window.jspdf;
-      const doc = new jsPDF('p', 'pt', 'letter');
-      const pageHeight = doc.internal.pageSize.height;
-      const marginY = 40;
-      const startX = 40;
-      let currentY = marginY;
+      // Use landscape orientation ('l') instead of portrait
+      const doc = new jsPDF('l', 'pt', 'letter');
       
-      // Define new column widths for the 5-column table (Photo, Deviation, Remedial, Criticality)
+      // Get page dimensions dynamically
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 40;
+      const startX = margin;
+      let currentY = margin;
+      
+      // Calculate available width and define fixed widths for non-photo columns.
+      const availableWidth = pageWidth - 2 * margin;  // Total available width
       const colAssetW = 60;
-      const colPhotoW = 120;
       const colDeviationW = 120;
       const colRemedialW = 120;
       const colCriticalityW = 60;
+      // Set Photo column width to use the remaining space.
+      const colPhotoW = availableWidth - (colAssetW + colDeviationW + colRemedialW + colCriticalityW);
       const tableW = colAssetW + colPhotoW + colDeviationW + colRemedialW + colCriticalityW;
       const rowHeight = 130;
       const headerHeight = 30;
@@ -483,7 +489,7 @@
         currentY += headerHeight;
       }
 
-      // Function to draw row border
+      // Function to draw row borders
       function drawRowBorder(y, height) {
         doc.line(startX, y, startX + tableW, y);
         doc.line(startX, y + height, startX + tableW, y + height);
@@ -508,10 +514,10 @@
       });
 
       pdfEntries.forEach(entry => {
-        // Before drawing each row, check if the entire row fits on the current page.
-        if (currentY + rowHeight > pageHeight - marginY) {
+        // Check if the entire row fits on the current page.
+        if (currentY + rowHeight > pageHeight - margin) {
           doc.addPage();
-          currentY = marginY;
+          currentY = margin;
           drawTableHeader();
         }
 
