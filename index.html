@@ -5,8 +5,10 @@
   <title>Asset Deviation Tracker</title>
   <!-- Make pages scale nicely on phones -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- Include the docx library from unpkg -->
+  <script src="https://unpkg.com/docx@7.8.0/build/index.js"></script>
   <style>
-    /* Global styling with gradient background */
+    /* Global styling with gradient background and emojis */
     body {
       font-family: Arial, sans-serif;
       margin: 20px;
@@ -78,7 +80,7 @@
     th {
       background: #f9f9f9;
     }
-    /* Add emoji icons in table headers */
+    /* Emoji icons in table headers */
     th:nth-child(1)::before { content: "🔢 "; }
     th:nth-child(2)::before { content: "📸 "; }
     th:nth-child(3)::before { content: "❗ "; }
@@ -124,7 +126,7 @@
 </head>
 <body>
   <h1>Asset Deviation Tracker</h1>
-
+  
   <!-- Asset Code input with datalist -->
   <label for="searchCodeInput">Asset Code (Search or type custom):</label>
   <input type="text" id="searchCodeInput" placeholder="e.g. 131-CON-01..." list="codeSuggestions" />
@@ -154,6 +156,7 @@
   <div class="buttons">
     <button id="generatePdf">Generate PDF</button>
     <button id="exportCsv">Export CSV</button>
+    <button id="exportDocx">Export DOCX</button>
   </div>
 
   <h2>Existing Entries</h2>
@@ -173,7 +176,6 @@
 
   <!-- jsPDF from CDN for PDF generation -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-
   <script>
     ////////////////////////////////////////////////////////////////////////////
     // IndexedDB Storage Functions
@@ -220,7 +222,7 @@
         const store = transaction.objectStore(STORE_NAME);
         const request = store.add(entry);
         request.onsuccess = event => {
-          entry.id = event.target.result; // assign generated id
+          entry.id = event.target.result;
           resolve(entry);
         };
         request.onerror = event => reject(event.target.error);
@@ -285,6 +287,7 @@
     const entriesTableBody  = document.querySelector('#entriesTable tbody');
     const generatePdfButton = document.getElementById('generatePdf');
     const exportCsvButton   = document.getElementById('exportCsv');
+    const exportDocxButton  = document.getElementById('exportDocx');
 
     ////////////////////////////////////////////////////////////////////////////
     // 3) Debounce Helper (1 second delay)
@@ -317,14 +320,11 @@
     ////////////////////////////////////////////////////////////////////////////
     function renderEntries() {
       entriesTableBody.innerHTML = '';
-      // Filter entries based on search input
       const filterText = searchCodeInput.value.trim().toLowerCase();
       let rowsToShow = filterText 
         ? entries.filter(entry => entry.assetCode.toLowerCase().includes(filterText))
         : entries;
-      // Limit to 50 rows
       rowsToShow = rowsToShow.slice(0, 50);
-
       rowsToShow.forEach(entry => {
         const row = document.createElement('tr');
 
@@ -461,7 +461,7 @@
     ////////////////////////////////////////////////////////////////////////////
     const handleSearch = debounce(() => {
       updateCodeSuggestions();
-      renderEntries(); // re-render table with filter applied
+      renderEntries();
     }, 1000);
     searchCodeInput.addEventListener('input', handleSearch);
 
@@ -470,28 +470,22 @@
     ////////////////////////////////////////////////////////////////////////////
     generatePdfButton.addEventListener('click', () => {
       const { jsPDF } = window.jspdf;
-      const doc = new jsPDF('l', 'pt', 'letter');  // landscape orientation
-      
-      // Get page dimensions dynamically
+      const doc = new jsPDF('l', 'pt', 'letter');
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
       const margin = 40;
       const startX = margin;
       let currentY = margin;
-      
-      // Calculate available width and define fixed widths for non-photo columns.
-      const availableWidth = pageWidth - 2 * margin;  // Total available width
+      const availableWidth = pageWidth - 2 * margin;
       const colAssetW = 60;
       const colDeviationW = 120;
       const colRemedialW = 120;
       const colCriticalityW = 60;
-      // Set Photo column width to use the remaining space.
       const colPhotoW = availableWidth - (colAssetW + colDeviationW + colRemedialW + colCriticalityW);
       const tableW = colAssetW + colPhotoW + colDeviationW + colRemedialW + colCriticalityW;
       const rowHeight = 130;
       const headerHeight = 30;
 
-      // Function to draw table header and update currentY
       function drawTableHeader() {
         drawRowBorder(currentY, headerHeight);
         doc.setFontSize(12);
@@ -503,7 +497,6 @@
         currentY += headerHeight;
       }
 
-      // Function to draw row borders
       function drawRowBorder(y, height) {
         doc.line(startX, y, startX + tableW, y);
         doc.line(startX, y + height, startX + tableW, y + height);
@@ -515,38 +508,29 @@
         doc.line(startX + tableW, y, startX + tableW, y + height);
       }
 
-      // Draw title and header
       doc.setFontSize(14);
-      // PDF title changed to "Deviation Table"
       doc.text('Deviation Table', startX, currentY);
       currentY += 10;
       drawTableHeader();
 
-      // Get filtered entries for PDF generation
       const pdfEntries = entries.filter(entry => {
         const filterText = searchCodeInput.value.trim().toLowerCase();
         return filterText ? entry.assetCode.toLowerCase().includes(filterText) : true;
       });
 
       pdfEntries.forEach(entry => {
-        // Check if the entire row fits on the current page.
         if (currentY + rowHeight > pageHeight - margin) {
           doc.addPage();
           currentY = margin;
           drawTableHeader();
         }
-
         drawRowBorder(currentY, rowHeight);
         doc.setFontSize(10);
-
-        // Asset Code
         const assetX = startX + 5;
         const assetY = currentY + 20;
         const assetW_ = colAssetW - 10;
         const assetLines = doc.splitTextToSize(entry.assetCode, assetW_);
         doc.text(assetLines, assetX, assetY);
-
-        // Photo
         const imgX = startX + colAssetW + 5;
         const maxImgWidth = colPhotoW - 10;
         const maxImgHeight = rowHeight - 10;
@@ -564,28 +548,21 @@
         } catch (err) {
           console.error('Image error:', err);
         }
-
-        // Deviation
         const deviationX = startX + colAssetW + colPhotoW + 5;
         const deviationY = currentY + 20;
         const deviationW_ = colDeviationW - 10;
         const deviationLines = doc.splitTextToSize(entry.deviation, deviationW_);
         doc.text(deviationLines, deviationX, deviationY);
-
-        // Remedial Action
         const remedX = startX + colAssetW + colPhotoW + colDeviationW + 5;
         const remedY = currentY + 20;
         const remedW_ = colRemedialW - 10;
         const remedLines = doc.splitTextToSize(entry.remedial, remedW_);
         doc.text(remedLines, remedX, remedY);
-
-        // Criticality
         const criticalX = startX + colAssetW + colPhotoW + colDeviationW + colRemedialW + 5;
         const criticalY = currentY + 20;
         const criticalW_ = colCriticalityW - 10;
         const criticalLines = doc.splitTextToSize(entry.criticality, criticalW_);
         doc.text(criticalLines, criticalX, criticalY);
-
         currentY += rowHeight;
       });
 
@@ -597,10 +574,8 @@
     ////////////////////////////////////////////////////////////////////////////
     exportCsvButton.addEventListener('click', () => {
       let csvContent = "data:text/csv;charset=utf-8,";
-      // CSV header
       csvContent += "Asset Code,Deviation,Remedial Action,Criticality,Timestamp\n";
       entries.forEach(entry => {
-        // Wrap values in quotes to handle commas, and format timestamp as a locale string
         const row = [
           entry.assetCode, 
           entry.deviation, 
@@ -620,7 +595,92 @@
     });
 
     ////////////////////////////////////////////////////////////////////////////
-    // 10) On load: Open DB and load entries
+    // 10) Export DOCX function using the docx library
+    ////////////////////////////////////////////////////////////////////////////
+    exportDocxButton.addEventListener('click', async () => {
+      const { Document, Packer, Paragraph, Table, TableRow, TableCell, ImageRun } = window.docx;
+
+      // Build a header row for the table.
+      const tableRows = [];
+      tableRows.push(new TableRow({
+          children: [
+              new TableCell({ children: [new Paragraph("Asset Code")] }),
+              new TableCell({ children: [new Paragraph("Photo")] }),
+              new TableCell({ children: [new Paragraph("Deviation")] }),
+              new TableCell({ children: [new Paragraph("Remedial Action")] }),
+              new TableCell({ children: [new Paragraph("Criticality")] }),
+              new TableCell({ children: [new Paragraph("Timestamp")] }),
+          ]
+      }));
+
+      // For each entry, create a table row.
+      entries.forEach(entry => {
+          let base64Data = "";
+          if (entry.image && entry.image.includes(",")) {
+              base64Data = entry.image.split(",")[1];
+          } else {
+              base64Data = entry.image;
+          }
+          // Create an ImageRun for the photo.
+          const imageParagraph = new Paragraph({
+              children: [
+                  new ImageRun({
+                      data: base64Data,
+                      transformation: {
+                          width: 150,
+                          height: 150,
+                      }
+                  })
+              ]
+          });
+          tableRows.push(new TableRow({
+              children: [
+                  new TableCell({ children: [new Paragraph(entry.assetCode)] }),
+                  new TableCell({ children: [imageParagraph] }),
+                  new TableCell({ children: [new Paragraph(entry.deviation)] }),
+                  new TableCell({ children: [new Paragraph(entry.remedial)] }),
+                  new TableCell({ children: [new Paragraph(entry.criticality)] }),
+                  new TableCell({ children: [new Paragraph(new Date(entry.timestamp).toLocaleString())] }),
+              ]
+          }));
+      });
+
+      // Create the table.
+      const table = new Table({
+          rows: tableRows,
+          width: {
+              size: 100,
+              type: "pct",
+          },
+      });
+
+      // Create the document with a title and the table.
+      const doc = new Document({
+          sections: [{
+              properties: {},
+              children: [
+                  new Paragraph({
+                      text: "Deviation Table",
+                      heading: "Heading1",
+                      alignment: "center"
+                  }),
+                  table,
+              ]
+          }]
+      });
+
+      // Generate the document as a Blob and trigger a download.
+      const blob = await Packer.toBlob(doc);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "deviation_tracker.docx";
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    ////////////////////////////////////////////////////////////////////////////
+    // 11) On load: Open DB and load entries
     ////////////////////////////////////////////////////////////////////////////
     openDatabase()
       .then(() => refreshEntries())
