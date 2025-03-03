@@ -2,175 +2,93 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Non-conformance Tracker</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <style>
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      margin: 10px;
+      font-family: Arial, sans-serif;
+      margin: 20px;
       background: #f8f9fa;
-      line-height: 1.6;
     }
-
-    h1, h2 {
-      text-align: center;
-      margin: 15px 0;
-      font-weight: 600;
-    }
-
-    h1 { font-size: 1.8rem; color: #1a73e8; }
-    h2 { font-size: 1.4rem; }
-
-    form, .buttons {
-      margin: 15px 0;
-      padding: 10px;
-      background: white;
-      border-radius: 10px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-
-    label {
-      display: block;
-      margin: 10px 0 5px;
-      font-weight: 500;
-      color: #202124;
-      font-size: 0.95rem;
-    }
-
-    input, select, button, textarea {
+    h1 { text-align: center; color: #2c3e50; }
+    .controls { margin: 20px 0; }
+    input, select, textarea, button {
       width: 100%;
-      padding: 12px;
-      margin: 5px 0 15px;
-      border: 1px solid #dadce0;
-      border-radius: 8px;
-      font-size: 1rem;
-      background: white;
+      padding: 10px;
+      margin: 5px 0;
+      border: 1px solid #ddd;
+      border-radius: 4px;
       box-sizing: border-box;
     }
-
     button {
-      background-color: #1a73e8;
+      background: #3498db;
       color: white;
-      font-weight: 500;
-      padding: 14px;
       border: none;
-      transition: all 0.2s ease;
+      cursor: pointer;
     }
-
-    button:hover { background-color: #1557b0; }
-    #clearAll { background-color: #dc3545; }
-    #clearAll:hover { background-color: #bb2d3b; }
-
-    .criticality-low { color: #28a745; }
-    .criticality-medium { color: #ffc107; }
-    .criticality-high { color: #dc3545; }
-
+    button:hover { background: #2980b9; }
     table {
       width: 100%;
       border-collapse: collapse;
-      background: white;
-      border-radius: 10px;
-      overflow: hidden;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      margin-top: 20px;
     }
-
     th, td {
-      padding: 12px;
+      border: 1px solid #ddd;
+      padding: 10px;
       text-align: left;
-      border-bottom: 1px solid #eee;
     }
-
-    th { background-color: #f8f9fa; font-weight: 600; }
-    img { max-width: 100px; height: auto; border-radius: 4px; }
-    textarea { resize: vertical; min-height: 80px; font-family: inherit; }
-
-    .orientation-selector {
-      display: flex;
-      gap: 10px;
-      margin: 15px 0;
-      justify-content: center;
-    }
-
+    img { max-width: 150px; height: auto; }
+    .criticality-low { color: #27ae60; }
+    .criticality-medium { color: #f1c40f; }
+    .criticality-high { color: #e74c3c; }
+    .orientation-selector { margin: 10px 0; }
     .orientation-btn {
-      padding: 10px 20px;
-      border-radius: 8px;
-      background: #e3f2fd;
-      border: 2px solid #1a73e8;
+      padding: 8px 15px;
+      margin-right: 10px;
+      background: #ecf0f1;
+      border: 1px solid #bdc3c7;
       cursor: pointer;
-      transition: all 0.2s ease;
     }
-
-    .orientation-btn.active {
-      background: #1a73e8;
-      color: white;
-    }
-
+    .orientation-btn.active { background: #3498db; color: white; }
     @media (max-width: 768px) {
-      .buttons { flex-direction: column; }
-      button { margin: 5px 0; }
-      table thead { display: none; }
-      table tr { display: block; margin-bottom: 15px; border: 1px solid #ddd; border-radius: 8px; }
-      table td {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        width: 100%;
-        text-align: right;
-        padding: 10px;
-        border: none;
-      }
-      table td::before {
+      table, thead, tbody, th, td, tr { display: block; }
+      thead { display: none; }
+      td { border: none; position: relative; padding-left: 50%; }
+      td::before {
         content: attr(data-label);
-        font-weight: 500;
-        color: #5f6368;
-        margin-right: 15px;
-        flex: 1;
-        text-align: left;
+        position: absolute;
+        left: 10px;
+        font-weight: bold;
       }
-      table td textarea { width: 90%; margin: 5px auto; padding: 8px; }
-      table td img { max-width: 80px; margin: 0 auto; }
-      table td:last-child { border-bottom: 0; }
+      img { max-width: 100px; }
     }
   </style>
 </head>
 <body>
   <h1>Non-conformance Tracker</h1>
-  
+
   <div class="orientation-selector">
     <button class="orientation-btn active" data-orientation="portrait">Portrait</button>
     <button class="orientation-btn" data-orientation="landscape">Landscape</button>
   </div>
 
-  <label for="searchCodeInput">Asset Code:</label>
-  <input type="text" id="searchCodeInput" placeholder="Search or type code..." list="codeSuggestions" />
-  <datalist id="codeSuggestions"></datalist>
+  <div class="controls">
+    <input type="text" id="searchInput" placeholder="Search asset code..." list="assetCodes">
+    <datalist id="assetCodes"></datalist>
+  </div>
 
   <form id="entryForm">
-    <label for="imageInput">📸 Photo</label>
-    <input type="file" id="imageInput" accept="image/*" capture="environment" required>
-    
-    <label for="nonConformanceInput">⚠️ Non-conformance</label>
-    <textarea id="nonConformanceInput" placeholder="Describe non-conformance..." required></textarea>
-    
-    <label for="criticalityInput">🚨 Criticality</label>
-    <select id="criticalityInput" required>
+    <input type="file" id="imageInput" accept="image/*" required>
+    <textarea id="nonConformance" placeholder="Non-conformance description..." required></textarea>
+    <select id="criticality" required>
       <option value="low">Low</option>
       <option value="medium">Medium</option>
       <option value="high">High</option>
     </select>
-    
-    <label for="remedialInput">🔧 Remedial Action</label>
-    <textarea id="remedialInput" placeholder="Required corrective action..." required></textarea>
-    
-    <button type="submit">➕ Add Entry</button>
+    <textarea id="remedial" placeholder="Remedial action..." required></textarea>
+    <button type="submit">Add Entry</button>
   </form>
 
-  <div class="buttons">
-    <button id="generatePdf">📄 Generate PDF</button>
-    <button id="clearAll">❌ Clear All</button>
-  </div>
-
-  <h2>Existing Entries</h2>
   <table id="entriesTable">
     <thead>
       <tr>
@@ -188,146 +106,133 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
   <script>
-    const DB_NAME = 'NonConformanceDB';
-    const DB_VERSION = 3;
+    const DB_NAME = 'NCRTrackerDB';
+    const DB_VERSION = 1;
     const STORE_NAME = 'entries';
     let db;
     let entries = [];
     let pdfOrientation = 'portrait';
 
-    // Database setup
-    function openDatabase() {
+    // Database initialization
+    async function initDB() {
       return new Promise((resolve, reject) => {
         const request = indexedDB.open(DB_NAME, DB_VERSION);
-        request.onerror = event => reject(event.target.error);
-        request.onupgradeneeded = event => {
-          db = event.target.result;
+        request.onerror = () => reject(request.error);
+        request.onupgradeneeded = (event) => {
+          const db = event.target.result;
           if (!db.objectStoreNames.contains(STORE_NAME)) {
             db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
           }
         };
-        request.onsuccess = event => {
+        request.onsuccess = (event) => {
           db = event.target.result;
-          resolve(db);
+          resolve();
         };
       });
     }
 
-    async function getAllEntriesFromDB() {
-      return new Promise((resolve, reject) => {
+    // Entry management
+    async function loadEntries() {
+      return new Promise((resolve) => {
         const transaction = db.transaction([STORE_NAME], 'readonly');
         const store = transaction.objectStore(STORE_NAME);
-        store.getAll().onsuccess = event => resolve(event.target.result);
-      });
-    }
-
-    async function addEntryToDB(entry) {
-      return new Promise((resolve, reject) => {
-        const transaction = db.transaction([STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(STORE_NAME);
-        store.add(entry).onsuccess = event => {
-          entry.id = event.target.result;
-          resolve(entry);
+        store.getAll().onsuccess = (event) => {
+          entries = event.target.result;
+          resolve();
         };
       });
     }
 
-    async function removeEntryFromDB(id) {
-      return new Promise((resolve, reject) => {
+    async function saveEntry(entry) {
+      return new Promise((resolve) => {
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = entry.id ? store.put(entry) : store.add(entry);
+        request.onsuccess = () => {
+          entry.id = request.result;
+          resolve();
+        };
+      });
+    }
+
+    async function deleteEntry(id) {
+      return new Promise((resolve) => {
         const transaction = db.transaction([STORE_NAME], 'readwrite');
         transaction.objectStore(STORE_NAME).delete(id).onsuccess = resolve;
       });
     }
 
     // Image handling
-    async function compressImage(imageData) {
-      return new Promise(resolve => {
-        const img = new Image();
-        img.src = imageData;
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          const MAX_SIZE = 1200;
-          let width = img.width;
-          let height = img.height;
+    async function compressImage(file) {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const maxSize = 800;
+            let width = img.width;
+            let height = img.height;
 
-          if (width > height) {
-            if (width > MAX_SIZE) {
-              height *= MAX_SIZE / width;
-              width = MAX_SIZE;
+            if (width > height) {
+              if (width > maxSize) {
+                height *= maxSize / width;
+                width = maxSize;
+              }
+            } else {
+              if (height > maxSize) {
+                width *= maxSize / height;
+                height = maxSize;
+              }
             }
-          } else {
-            if (height > MAX_SIZE) {
-              width *= MAX_SIZE / height;
-              height = MAX_SIZE;
-            }
-          }
 
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL('image/jpeg', 0.8));
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+            resolve(canvas.toDataURL('image/jpeg', 0.8));
+          };
+          img.src = event.target.result;
         };
+        reader.readAsDataURL(file);
       });
     }
 
-    // UI components
-    async function refreshEntries() {
-      entries = await getAllEntriesFromDB();
-      renderEntries();
-    }
-
+    // UI rendering
     function renderEntries() {
+      const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+      const filtered = entries.filter(entry => 
+        entry.assetCode.toLowerCase().includes(searchTerm)
+      );
+
       const tbody = document.querySelector('#entriesTable tbody');
-      tbody.innerHTML = '';
-      
-      entries.forEach(entry => {
-        const row = document.createElement('tr');
-        
-        row.innerHTML = `
-          <td data-label="Asset Code">
-            <textarea>${entry.assetCode}</textarea>
-          </td>
+      tbody.innerHTML = filtered.map(entry => `
+        <tr>
+          <td data-label="Asset Code"><input type="text" value="${entry.assetCode}"></td>
           <td data-label="Photo"><img src="${entry.image}"></td>
-          <td data-label="Non-conformance">
-            <textarea>${entry.nonConformance}</textarea>
-          </td>
+          <td data-label="Non-conformance"><textarea>${entry.nonConformance}</textarea></td>
           <td data-label="Criticality" class="criticality-${entry.criticality}">
-            ${entry.criticality.toUpperCase()}
+            <select class="criticality-select">
+              <option ${entry.criticality === 'low' ? 'selected' : ''}>Low</option>
+              <option ${entry.criticality === 'medium' ? 'selected' : ''}>Medium</option>
+              <option ${entry.criticality === 'high' ? 'selected' : ''}>High</option>
+            </select>
           </td>
-          <td data-label="Remedial Action">
-            <textarea>${entry.remedial}</textarea>
-          </td>
+          <td data-label="Remedial Action"><textarea>${entry.remedial}</textarea></td>
           <td data-label="Actions">
-            <button onclick="deleteEntry(${entry.id})">Delete</button>
+            <button onclick="deleteItem(${entry.id})">Delete</button>
           </td>
-        `;
+        </tr>
+      `).join('');
 
-        row.querySelectorAll('textarea').forEach(textarea => {
-          textarea.addEventListener('input', () => updateEntry(entry.id, textarea));
-        });
-
-        tbody.appendChild(row);
-      });
+      // Update asset code suggestions
+      const assetCodes = [...new Set(entries.map(e => e.assetCode))];
+      document.getElementById('assetCodes').innerHTML = 
+        assetCodes.map(code => `<option value="${code}">`).join('');
     }
-
-    async function updateEntry(id, element) {
-      const entry = entries.find(e => e.id === id);
-      const field = element.parentElement.getAttribute('data-label').toLowerCase().replace(/[ -]/g, '');
-      entry[field] = element.value;
-      const transaction = db.transaction([STORE_NAME], 'readwrite');
-      transaction.objectStore(STORE_NAME).put(entry);
-    }
-
-    window.deleteEntry = async id => {
-      if (confirm('Delete this entry?')) {
-        await removeEntryFromDB(id);
-        await refreshEntries();
-      }
-    };
 
     // PDF Generation
-    document.getElementById('generatePdf').addEventListener('click', async () => {
+    async function generatePDF() {
       const { jsPDF } = window.jspdf;
       const doc = new jsPDF({
         orientation: pdfOrientation,
@@ -335,115 +240,115 @@
         format: 'letter'
       });
 
-      // Configure table columns
       const columns = [
-        { header: 'Asset Code', dataKey: 'assetCode', cellWidth: 100 },
-        { header: 'Photo', dataKey: 'image', cellWidth: 150 },
-        { header: 'Non-conformance', dataKey: 'nonConformance', cellWidth: 'auto' },
-        { header: 'Criticality', dataKey: 'criticality', cellWidth: 80 },
-        { header: 'Remedial Action', dataKey: 'remedial', cellWidth: 'auto' }
+        { header: 'Asset Code', dataKey: 'assetCode' },
+        { header: 'Non-conformance', dataKey: 'nonConformance' },
+        { header: 'Criticality', dataKey: 'criticality' },
+        { header: 'Remedial Action', dataKey: 'remedial' },
+        { header: 'Photo', dataKey: 'image' }
       ];
 
-      // Prepare data with compressed images
-      const pdfData = await Promise.all(entries.map(async entry => ({
+      const data = await Promise.all(entries.map(async entry => ({
         ...entry,
-        criticality: entry.criticality.toUpperCase(),
-        image: await loadImage(await compressImage(entry.image))
+        image: await loadImage(entry.image),
+        criticality: entry.criticality.toUpperCase()
       })));
 
-      // Generate PDF
       doc.autoTable({
         columns,
-        body: pdfData,
-        styles: { 
-          cellPadding: 10,
-          fontSize: 10,
-          valign: 'middle'
-        },
-        columnStyles: {
-          image: { cellWidth: 150, minCellHeight: 100 }
-        },
-        didParseCell: (data) => {
-          if (data.column.dataKey === 'image') {
-            data.cell.styles.halign = 'center';
-          }
-        },
+        body: data,
         didDrawCell: (data) => {
           if (data.column.dataKey === 'image' && data.cell.raw) {
             const img = data.cell.raw;
-            const maxWidth = data.cell.width - 20;
-            const maxHeight = data.cell.height - 20;
+            const maxWidth = data.cell.width - 10;
+            const maxHeight = data.cell.height - 10;
             const ratio = Math.min(maxWidth / img.width, maxHeight / img.height);
-            const width = img.width * ratio;
-            const height = img.height * ratio;
-            
             doc.addImage(
               img,
               'JPEG',
-              data.cell.x + (data.cell.width - width) / 2,
-              data.cell.y + (data.cell.height - height) / 2,
-              width,
-              height
+              data.cell.x + 5,
+              data.cell.y + 5,
+              img.width * ratio,
+              img.height * ratio
             );
           }
         },
-        margin: { top: 40 },
-        startY: 40,
-        tableWidth: pdfOrientation === 'portrait' ? 550 : 750,
-        theme: 'grid',
+        styles: { fontSize: 10, cellPadding: 8 },
+        columnStyles: {
+          image: { cellWidth: 100 }
+        },
+        margin: { top: 20 },
         pageBreak: 'auto',
         rowPageBreak: 'avoid'
       });
 
       doc.save('non-conformance-report.pdf');
-    });
+    }
 
-    async function loadImage(imageData) {
-      return new Promise(resolve => {
+    async function loadImage(dataUrl) {
+      return new Promise((resolve) => {
         const img = new Image();
         img.onload = () => resolve(img);
-        img.src = imageData;
+        img.src = dataUrl;
       });
     }
 
     // Event Listeners
+    document.getElementById('entryForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const imageFile = document.getElementById('imageInput').files[0];
+      const image = await compressImage(imageFile);
+      
+      const entry = {
+        assetCode: document.getElementById('searchInput').value.trim(),
+        nonConformance: document.getElementById('nonConformance').value.trim(),
+        criticality: document.getElementById('criticality').value,
+        remedial: document.getElementById('remedial').value.trim(),
+        image: image
+      };
+
+      await saveEntry(entry);
+      await loadEntries();
+      renderEntries();
+      e.target.reset();
+    });
+
+    document.getElementById('searchInput').addEventListener('input', 
+      debounce(renderEntries, 300)
+    );
+
     document.querySelectorAll('.orientation-btn').forEach(btn => {
       btn.addEventListener('click', () => {
-        document.querySelectorAll('.orientation-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.orientation-btn').forEach(b => 
+          b.classList.remove('active'));
         btn.classList.add('active');
         pdfOrientation = btn.dataset.orientation;
       });
     });
 
-    document.getElementById('clearAll').addEventListener('click', async () => {
-      if (confirm('Clear ALL entries?')) {
-        const transaction = db.transaction([STORE_NAME], 'readwrite');
-        transaction.objectStore(STORE_NAME).clear();
-        entries = [];
+    // Utilities
+    function debounce(fn, delay) {
+      let timeout;
+      return (...args) => {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => fn(...args), delay);
+      };
+    }
+
+    window.deleteItem = async (id) => {
+      if (confirm('Delete this entry?')) {
+        await deleteEntry(id);
+        entries = entries.filter(e => e.id !== id);
         renderEntries();
       }
-    });
+    };
 
-    document.getElementById('entryForm').addEventListener('submit', async e => {
-      e.preventDefault();
-      const reader = new FileReader();
-      reader.onload = async e => {
-        const entry = {
-          assetCode: document.getElementById('searchCodeInput').value.trim(),
-          image: await compressImage(e.target.result),
-          nonConformance: document.getElementById('nonConformanceInput').value.trim(),
-          criticality: document.getElementById('criticalityInput').value,
-          remedial: document.getElementById('remedialInput').value.trim()
-        };
-        await addEntryToDB(entry);
-        await refreshEntries();
-        e.target.form.reset();
-      };
-      reader.readAsDataURL(document.getElementById('imageInput').files[0]);
-    });
-
-    // Initialize
-    openDatabase().then(refreshEntries);
+    // Initialization
+    (async () => {
+      await initDB();
+      await loadEntries();
+      renderEntries();
+    })();
   </script>
 </body>
 </html>
