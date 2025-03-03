@@ -6,7 +6,7 @@
   <!-- Make pages scale nicely on phones -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
-    /* Subtle gradient background */
+    /* Global styling with gradient background */
     body {
       font-family: Arial, sans-serif;
       margin: 20px;
@@ -15,6 +15,10 @@
       margin-right: auto;
       background: linear-gradient(to bottom right, #f0f0f0, #ffffff);
     }
+    /* Add an emoji before the title */
+    h1:before {
+      content: "📸 ";
+    }
     h1, h2 {
       text-align: center;
       margin-top: 10px;
@@ -22,6 +26,7 @@
     }
     form, .buttons {
       margin: 20px 0;
+      text-align: center;
     }
     label {
       display: block;
@@ -48,10 +53,12 @@
       padding: 8px 12px;
       font-size: 1rem;
       border-radius: 4px;
+      margin: 5px;
     }
     button:hover {
       background-color: #005fab;
     }
+    /* Table styling */
     table {
       border-collapse: collapse;
       width: 100%;
@@ -71,6 +78,12 @@
     th {
       background: #f9f9f9;
     }
+    /* Add emoji icons in table headers */
+    th:nth-child(1)::before { content: "🔢 "; }
+    th:nth-child(2)::before { content: "📸 "; }
+    th:nth-child(3)::before { content: "❗ "; }
+    th:nth-child(4)::before { content: "🛠️ "; }
+    th:nth-child(5)::before { content: "⚠️ "; }
     /* Hover effect for table rows */
     tbody tr:hover {
       background-color: #fafafa;
@@ -140,6 +153,7 @@
 
   <div class="buttons">
     <button id="generatePdf">Generate PDF</button>
+    <button id="exportCsv">Export CSV</button>
   </div>
 
   <h2>Existing Entries</h2>
@@ -270,6 +284,7 @@
     const remedialInput     = document.getElementById('remedialInput');
     const entriesTableBody  = document.querySelector('#entriesTable tbody');
     const generatePdfButton = document.getElementById('generatePdf');
+    const exportCsvButton   = document.getElementById('exportCsv');
 
     ////////////////////////////////////////////////////////////////////////////
     // 3) Debounce Helper (1 second delay)
@@ -451,12 +466,11 @@
     searchCodeInput.addEventListener('input', handleSearch);
 
     ////////////////////////////////////////////////////////////////////////////
-    // 8) Generate PDF using jsPDF ensuring complete rows on pages
+    // 8) Generate PDF using jsPDF in landscape ensuring complete rows on pages
     ////////////////////////////////////////////////////////////////////////////
     generatePdfButton.addEventListener('click', () => {
       const { jsPDF } = window.jspdf;
-      // Use landscape orientation ('l') instead of portrait
-      const doc = new jsPDF('l', 'pt', 'letter');
+      const doc = new jsPDF('l', 'pt', 'letter');  // landscape orientation
       
       // Get page dimensions dynamically
       const pageWidth = doc.internal.pageSize.getWidth();
@@ -574,11 +588,38 @@
         currentY += rowHeight;
       });
 
-      doc.save('entries.pdf');
+      doc.save('deviation_tracker.pdf');
     });
 
     ////////////////////////////////////////////////////////////////////////////
-    // 9) On load: Open DB and load entries
+    // 9) Export CSV function (for spreadsheet/Word editing)
+    ////////////////////////////////////////////////////////////////////////////
+    exportCsvButton.addEventListener('click', () => {
+      let csvContent = "data:text/csv;charset=utf-8,";
+      // CSV header
+      csvContent += "Asset Code,Deviation,Remedial Action,Criticality,Timestamp\n";
+      entries.forEach(entry => {
+        // Wrap values in quotes to handle commas, and format timestamp as a locale string
+        const row = [
+          entry.assetCode, 
+          entry.deviation, 
+          entry.remedial, 
+          entry.criticality, 
+          new Date(entry.timestamp).toLocaleString()
+        ].map(val => `"${val}"`).join(",");
+        csvContent += row + "\n";
+      });
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", "deviation_tracker.csv");
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    });
+
+    ////////////////////////////////////////////////////////////////////////////
+    // 10) On load: Open DB and load entries
     ////////////////////////////////////////////////////////////////////////////
     openDatabase()
       .then(() => refreshEntries())
