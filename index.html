@@ -570,29 +570,17 @@
     });
 
     ////////////////////////////////////////////////////////////////////////////
-    // 9) Export CSV function (for spreadsheet/Word editing)
+    // 9) Helper: Convert base64 string to ArrayBuffer
     ////////////////////////////////////////////////////////////////////////////
-    exportCsvButton.addEventListener('click', () => {
-      let csvContent = "data:text/csv;charset=utf-8,";
-      csvContent += "Asset Code,Deviation,Remedial Action,Criticality,Timestamp\n";
-      entries.forEach(entry => {
-        const row = [
-          entry.assetCode, 
-          entry.deviation, 
-          entry.remedial, 
-          entry.criticality, 
-          new Date(entry.timestamp).toLocaleString()
-        ].map(val => `"${val}"`).join(",");
-        csvContent += row + "\n";
-      });
-      const encodedUri = encodeURI(csvContent);
-      const link = document.createElement("a");
-      link.setAttribute("href", encodedUri);
-      link.setAttribute("download", "deviation_tracker.csv");
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    });
+    function base64ToArrayBuffer(base64) {
+      const binaryString = window.atob(base64);
+      const len = binaryString.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      return bytes.buffer;
+    }
 
     ////////////////////////////////////////////////////////////////////////////
     // 10) Export DOCX function using the docx library
@@ -621,11 +609,14 @@
           } else {
               base64Data = entry.image;
           }
-          // Create an ImageRun for the photo.
+          // Convert base64 string to an ArrayBuffer then wrap in a Uint8Array.
+          const arrayBuffer = base64ToArrayBuffer(base64Data);
+          const imageData = new Uint8Array(arrayBuffer);
+
           const imageParagraph = new Paragraph({
               children: [
                   new ImageRun({
-                      data: base64Data,
+                      data: imageData,
                       transformation: {
                           width: 150,
                           height: 150,
