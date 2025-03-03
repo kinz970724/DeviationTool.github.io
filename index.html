@@ -177,506 +177,514 @@
   <!-- jsPDF from CDN for PDF generation -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script>
-    ////////////////////////////////////////////////////////////////////////////
-    // IndexedDB Storage Functions
-    ////////////////////////////////////////////////////////////////////////////
-    const DB_NAME = 'DeviationsDB';
-    const DB_VERSION = 1;
-    const STORE_NAME = 'entries';
-    let db;
-    let entries = []; // In-memory array of all entries
+    // Wrap all initialization in DOMContentLoaded
+    document.addEventListener("DOMContentLoaded", () => {
+      ////////////////////////////////////////////////////////////////////////////
+      // IndexedDB Storage Functions
+      ////////////////////////////////////////////////////////////////////////////
+      const DB_NAME = 'DeviationsDB';
+      const DB_VERSION = 1;
+      const STORE_NAME = 'entries';
+      let db;
+      let entries = []; // In-memory array of all entries
 
-    function openDatabase() {
-      return new Promise((resolve, reject) => {
-        const request = indexedDB.open(DB_NAME, DB_VERSION);
-        request.onerror = event => {
-          console.error("Database error:", event.target.error);
-          reject(event.target.error);
-        };
-        request.onupgradeneeded = event => {
-          db = event.target.result;
-          if (!db.objectStoreNames.contains(STORE_NAME)) {
-            db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
-          }
-        };
-        request.onsuccess = event => {
-          db = event.target.result;
-          resolve(db);
-        };
-      });
-    }
-
-    function getAllEntriesFromDB() {
-      return new Promise((resolve, reject) => {
-        const transaction = db.transaction([STORE_NAME], 'readonly');
-        const store = transaction.objectStore(STORE_NAME);
-        const request = store.getAll();
-        request.onsuccess = event => resolve(event.target.result);
-        request.onerror = event => reject(event.target.error);
-      });
-    }
-
-    function addEntryToDB(entry) {
-      return new Promise((resolve, reject) => {
-        const transaction = db.transaction([STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(STORE_NAME);
-        const request = store.add(entry);
-        request.onsuccess = event => {
-          entry.id = event.target.result;
-          resolve(entry);
-        };
-        request.onerror = event => reject(event.target.error);
-      });
-    }
-
-    function updateEntryInDB(entry) {
-      return new Promise((resolve, reject) => {
-        const transaction = db.transaction([STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(STORE_NAME);
-        const request = store.put(entry);
-        request.onsuccess = () => resolve();
-        request.onerror = event => reject(event.target.error);
-      });
-    }
-
-    function removeEntryFromDB(id) {
-      return new Promise((resolve, reject) => {
-        const transaction = db.transaction([STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(STORE_NAME);
-        const request = store.delete(id);
-        request.onsuccess = () => resolve();
-        request.onerror = event => reject(event.target.error);
-      });
-    }
-
-    async function refreshEntries() {
-      try {
-        entries = await getAllEntriesFromDB();
-        renderEntries();
-      } catch (err) {
-        console.error("Error refreshing entries:", err);
-      }
-    }
-
-    ////////////////////////////////////////////////////////////////////////////
-    // 1) Load asset codes & store them
-    ////////////////////////////////////////////////////////////////////////////
-    let allCodes = [];
-    fetch('assetCodes.txt')
-      .then(res => {
-        if (!res.ok) {
-          throw new Error('Could not load assetCodes.txt');
-        }
-        return res.text();
-      })
-      .then(data => {
-        allCodes = data.split('\n').map(line => line.trim()).filter(line => line !== '');
-      })
-      .catch(err => console.error(err));
-
-    ////////////////////////////////////////////////////////////////////////////
-    // 2) DOM elements
-    ////////////////////////////////////////////////////////////////////////////
-    const searchCodeInput   = document.getElementById('searchCodeInput');
-    const codeSuggestions   = document.getElementById('codeSuggestions');
-    const entryForm         = document.getElementById('entryForm');
-    const imageInput        = document.getElementById('imageInput');
-    const deviationInput    = document.getElementById('deviationInput');
-    const criticalityInput  = document.getElementById('criticalityInput');
-    const remedialInput     = document.getElementById('remedialInput');
-    const entriesTableBody  = document.querySelector('#entriesTable tbody');
-    const generatePdfButton = document.getElementById('generatePdf');
-    const exportCsvButton   = document.getElementById('exportCsv');
-    const exportDocxButton  = document.getElementById('exportDocx');
-
-    ////////////////////////////////////////////////////////////////////////////
-    // 3) Debounce Helper (1 second delay)
-    ////////////////////////////////////////////////////////////////////////////
-    function debounce(fn, delay) {
-      let timeout;
-      return (...args) => {
-        clearTimeout(timeout);
-        timeout = setTimeout(() => fn(...args), delay);
-      };
-    }
-
-    ////////////////////////////////////////////////////////////////////////////
-    // 4) Update <datalist> (limit suggestions)
-    ////////////////////////////////////////////////////////////////////////////
-    function updateCodeSuggestions() {
-      codeSuggestions.innerHTML = '';
-      const typed = searchCodeInput.value.trim().toLowerCase();
-      let matched = typed ? allCodes.filter(code => code.toLowerCase().includes(typed)) : allCodes;
-      const MAX_SUGGESTIONS = 50;
-      matched.slice(0, MAX_SUGGESTIONS).forEach(code => {
-        const opt = document.createElement('option');
-        opt.value = code;
-        codeSuggestions.appendChild(opt);
-      });
-    }
-
-    ////////////////////////////////////////////////////////////////////////////
-    // 5) Render the table with filtering
-    ////////////////////////////////////////////////////////////////////////////
-    function renderEntries() {
-      entriesTableBody.innerHTML = '';
-      const filterText = searchCodeInput.value.trim().toLowerCase();
-      let rowsToShow = filterText 
-        ? entries.filter(entry => entry.assetCode.toLowerCase().includes(filterText))
-        : entries;
-      rowsToShow = rowsToShow.slice(0, 50);
-      rowsToShow.forEach(entry => {
-        const row = document.createElement('tr');
-
-        // Asset Code
-        const assetTd = document.createElement('td');
-        assetTd.setAttribute('data-label', 'Asset Code');
-        const assetArea = document.createElement('textarea');
-        assetArea.value = entry.assetCode;
-        assetArea.rows = 1;
-        assetArea.style.width = '100%';
-        assetArea.oninput = () => {
-          entry.assetCode = assetArea.value;
-          updateEntryInDB(entry).catch(err => console.error("Error updating entry:", err));
-        };
-        assetTd.appendChild(assetArea);
-        row.appendChild(assetTd);
-
-        // Photo
-        const photoTd = document.createElement('td');
-        photoTd.setAttribute('data-label', 'Photo');
-        const img = document.createElement('img');
-        img.src = entry.image;
-        photoTd.appendChild(img);
-        row.appendChild(photoTd);
-
-        // Deviation
-        const deviationTd = document.createElement('td');
-        deviationTd.setAttribute('data-label', 'Deviation');
-        const deviationArea = document.createElement('textarea');
-        deviationArea.value = entry.deviation;
-        deviationArea.rows = 2;
-        deviationArea.style.width = '100%';
-        deviationArea.oninput = () => {
-          entry.deviation = deviationArea.value;
-          updateEntryInDB(entry).catch(err => console.error("Error updating entry:", err));
-        };
-        deviationTd.appendChild(deviationArea);
-        row.appendChild(deviationTd);
-
-        // Remedial Action
-        const remTd = document.createElement('td');
-        remTd.setAttribute('data-label', 'Remedial Action');
-        const remArea = document.createElement('textarea');
-        remArea.value = entry.remedial;
-        remArea.rows = 2;
-        remArea.style.width = '100%';
-        remArea.oninput = () => {
-          entry.remedial = remArea.value;
-          updateEntryInDB(entry).catch(err => console.error("Error updating entry:", err));
-        };
-        remTd.appendChild(remArea);
-        row.appendChild(remTd);
-
-        // Criticality
-        const criticalityTd = document.createElement('td');
-        criticalityTd.setAttribute('data-label', 'Criticality');
-        const criticalityArea = document.createElement('textarea');
-        criticalityArea.value = entry.criticality;
-        criticalityArea.rows = 1;
-        criticalityArea.style.width = '100%';
-        criticalityArea.oninput = () => {
-          entry.criticality = criticalityArea.value;
-          updateEntryInDB(entry).catch(err => console.error("Error updating entry:", err));
-        };
-        criticalityTd.appendChild(criticalityArea);
-        row.appendChild(criticalityTd);
-
-        // Actions
-        const actionsTd = document.createElement('td');
-        actionsTd.setAttribute('data-label', 'Actions');
-        const deleteBtn = document.createElement('button');
-        deleteBtn.textContent = 'Delete';
-        deleteBtn.onclick = () => {
-          if (confirm("Are you sure you want to delete this entry?")) {
-            removeEntryFromDB(entry.id)
-              .then(() => refreshEntries())
-              .catch(err => console.error("Error deleting entry:", err));
-          }
-        };
-        actionsTd.appendChild(deleteBtn);
-        row.appendChild(actionsTd);
-
-        entriesTableBody.appendChild(row);
-      });
-    }
-
-    ////////////////////////////////////////////////////////////////////////////
-    // 6) Add new entry form
-    ////////////////////////////////////////////////////////////////////////////
-    entryForm.addEventListener('submit', e => {
-      e.preventDefault();
-      const code = searchCodeInput.value.trim();
-      const file = imageInput.files[0];
-      const deviation = deviationInput.value.trim();
-      const criticality = criticalityInput.value.trim();
-      const remd = remedialInput.value.trim();
-
-      if (!code) {
-        alert('Please type or pick an Asset Code before adding an entry.');
-        return;
-      }
-      if (!file) {
-        alert('Please select a photo.');
-        return;
-      }
-      if (!deviation || !criticality || !remd) {
-        alert('Please fill out all fields (Deviation, Criticality, and Remedial Action).');
-        return;
+      function openDatabase() {
+        return new Promise((resolve, reject) => {
+          const request = indexedDB.open(DB_NAME, DB_VERSION);
+          request.onerror = event => {
+            console.error("Database error:", event.target.error);
+            reject(event.target.error);
+          };
+          request.onupgradeneeded = event => {
+            db = event.target.result;
+            if (!db.objectStoreNames.contains(STORE_NAME)) {
+              db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+            }
+          };
+          request.onsuccess = event => {
+            db = event.target.result;
+            resolve(db);
+          };
+        });
       }
 
-      const reader = new FileReader();
-      reader.onload = function(evt) {
-        const imageData = evt.target.result;
-        const newEntry = {
-          assetCode: code,
-          image: imageData,
-          deviation: deviation,
-          remedial: remd,
-          criticality: criticality,
-          timestamp: Date.now()
-        };
-        addEntryToDB(newEntry)
-          .then(() => {
-            refreshEntries();
-            entryForm.reset();
-          })
-          .catch(err => console.error("Error adding entry:", err));
-      };
-      reader.readAsDataURL(file);
-    });
-
-    ////////////////////////////////////////////////////////////////////////////
-    // 7) Debounced search for datalist and table filter
-    ////////////////////////////////////////////////////////////////////////////
-    const handleSearch = debounce(() => {
-      updateCodeSuggestions();
-      renderEntries();
-    }, 1000);
-    searchCodeInput.addEventListener('input', handleSearch);
-
-    ////////////////////////////////////////////////////////////////////////////
-    // 8) Generate PDF using jsPDF in landscape ensuring complete rows on pages
-    ////////////////////////////////////////////////////////////////////////////
-    generatePdfButton.addEventListener('click', () => {
-      const { jsPDF } = window.jspdf;
-      const doc = new jsPDF('l', 'pt', 'letter');
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const pageHeight = doc.internal.pageSize.getHeight();
-      const margin = 40;
-      const startX = margin;
-      let currentY = margin;
-      const availableWidth = pageWidth - 2 * margin;
-      const colAssetW = 60;
-      const colDeviationW = 120;
-      const colRemedialW = 120;
-      const colCriticalityW = 60;
-      const colPhotoW = availableWidth - (colAssetW + colDeviationW + colRemedialW + colCriticalityW);
-      const tableW = colAssetW + colPhotoW + colDeviationW + colRemedialW + colCriticalityW;
-      const rowHeight = 130;
-      const headerHeight = 30;
-
-      function drawTableHeader() {
-        drawRowBorder(currentY, headerHeight);
-        doc.setFontSize(12);
-        doc.text('Asset', startX + 5, currentY + 18);
-        doc.text('Photo', startX + colAssetW + 5, currentY + 18);
-        doc.text('Deviation', startX + colAssetW + colPhotoW + 5, currentY + 18);
-        doc.text('Remedial', startX + colAssetW + colPhotoW + colDeviationW + 5, currentY + 18);
-        doc.text('Criticality', startX + colAssetW + colPhotoW + colDeviationW + colRemedialW + 5, currentY + 18);
-        currentY += headerHeight;
+      function getAllEntriesFromDB() {
+        return new Promise((resolve, reject) => {
+          const transaction = db.transaction([STORE_NAME], 'readonly');
+          const store = transaction.objectStore(STORE_NAME);
+          const request = store.getAll();
+          request.onsuccess = event => resolve(event.target.result);
+          request.onerror = event => reject(event.target.error);
+        });
       }
 
-      function drawRowBorder(y, height) {
-        doc.line(startX, y, startX + tableW, y);
-        doc.line(startX, y + height, startX + tableW, y + height);
-        doc.line(startX, y, startX, y + height);
-        doc.line(startX + colAssetW, y, startX + colAssetW, y + height);
-        doc.line(startX + colAssetW + colPhotoW, y, startX + colAssetW + colPhotoW, y + height);
-        doc.line(startX + colAssetW + colPhotoW + colDeviationW, y, startX + colAssetW + colPhotoW + colDeviationW, y + height);
-        doc.line(startX + colAssetW + colPhotoW + colDeviationW + colRemedialW, y, startX + colAssetW + colPhotoW + colDeviationW + colRemedialW, y + height);
-        doc.line(startX + tableW, y, startX + tableW, y + height);
+      function addEntryToDB(entry) {
+        return new Promise((resolve, reject) => {
+          const transaction = db.transaction([STORE_NAME], 'readwrite');
+          const store = transaction.objectStore(STORE_NAME);
+          const request = store.add(entry);
+          request.onsuccess = event => {
+            entry.id = event.target.result;
+            resolve(entry);
+          };
+          request.onerror = event => reject(event.target.error);
+        });
       }
 
-      doc.setFontSize(14);
-      doc.text('Deviation Table', startX, currentY);
-      currentY += 10;
-      drawTableHeader();
+      function updateEntryInDB(entry) {
+        return new Promise((resolve, reject) => {
+          const transaction = db.transaction([STORE_NAME], 'readwrite');
+          const store = transaction.objectStore(STORE_NAME);
+          const request = store.put(entry);
+          request.onsuccess = () => resolve();
+          request.onerror = event => reject(event.target.error);
+        });
+      }
 
-      const pdfEntries = entries.filter(entry => {
-        const filterText = searchCodeInput.value.trim().toLowerCase();
-        return filterText ? entry.assetCode.toLowerCase().includes(filterText) : true;
-      });
+      function removeEntryFromDB(id) {
+        return new Promise((resolve, reject) => {
+          const transaction = db.transaction([STORE_NAME], 'readwrite');
+          const store = transaction.objectStore(STORE_NAME);
+          const request = store.delete(id);
+          request.onsuccess = () => resolve();
+          request.onerror = event => reject(event.target.error);
+        });
+      }
 
-      pdfEntries.forEach(entry => {
-        if (currentY + rowHeight > pageHeight - margin) {
-          doc.addPage();
-          currentY = margin;
-          drawTableHeader();
-        }
-        drawRowBorder(currentY, rowHeight);
-        doc.setFontSize(10);
-        const assetX = startX + 5;
-        const assetY = currentY + 20;
-        const assetW_ = colAssetW - 10;
-        const assetLines = doc.splitTextToSize(entry.assetCode, assetW_);
-        doc.text(assetLines, assetX, assetY);
-        const imgX = startX + colAssetW + 5;
-        const maxImgWidth = colPhotoW - 10;
-        const maxImgHeight = rowHeight - 10;
+      async function refreshEntries() {
         try {
-          const isPng = (entry.image || '').toLowerCase().includes('image/png');
-          const format = isPng ? 'PNG' : 'JPEG';
-          const props = doc.getImageProperties(entry.image);
-          let iWidth = props.width;
-          let iHeight = props.height;
-          const ratio = Math.min(maxImgWidth / iWidth, maxImgHeight / iHeight);
-          iWidth *= ratio;
-          iHeight *= ratio;
-          const yOffset = (rowHeight - iHeight) / 2;
-          doc.addImage(entry.image, format, imgX, currentY + yOffset, iWidth, iHeight);
+          entries = await getAllEntriesFromDB();
+          renderEntries();
         } catch (err) {
-          console.error('Image error:', err);
+          console.error("Error refreshing entries:", err);
         }
-        const deviationX = startX + colAssetW + colPhotoW + 5;
-        const deviationY = currentY + 20;
-        const deviationW_ = colDeviationW - 10;
-        const deviationLines = doc.splitTextToSize(entry.deviation, deviationW_);
-        doc.text(deviationLines, deviationX, deviationY);
-        const remedX = startX + colAssetW + colPhotoW + colDeviationW + 5;
-        const remedY = currentY + 20;
-        const remedW_ = colRemedialW - 10;
-        const remedLines = doc.splitTextToSize(entry.remedial, remedW_);
-        doc.text(remedLines, remedX, remedY);
-        const criticalX = startX + colAssetW + colPhotoW + colDeviationW + colRemedialW + 5;
-        const criticalY = currentY + 20;
-        const criticalW_ = colCriticalityW - 10;
-        const criticalLines = doc.splitTextToSize(entry.criticality, criticalW_);
-        doc.text(criticalLines, criticalX, criticalY);
-        currentY += rowHeight;
+      }
+
+      ////////////////////////////////////////////////////////////////////////////
+      // 1) Load asset codes & store them
+      ////////////////////////////////////////////////////////////////////////////
+      let allCodes = [];
+      fetch('assetCodes.txt')
+        .then(res => {
+          if (!res.ok) {
+            throw new Error('Could not load assetCodes.txt');
+          }
+          return res.text();
+        })
+        .then(data => {
+          allCodes = data.split('\n').map(line => line.trim()).filter(line => line !== '');
+        })
+        .catch(err => console.error(err));
+
+      ////////////////////////////////////////////////////////////////////////////
+      // 2) DOM elements
+      ////////////////////////////////////////////////////////////////////////////
+      const searchCodeInput   = document.getElementById('searchCodeInput');
+      const codeSuggestions   = document.getElementById('codeSuggestions');
+      const entryForm         = document.getElementById('entryForm');
+      const imageInput        = document.getElementById('imageInput');
+      const deviationInput    = document.getElementById('deviationInput');
+      const criticalityInput  = document.getElementById('criticalityInput');
+      const remedialInput     = document.getElementById('remedialInput');
+      const entriesTableBody  = document.querySelector('#entriesTable tbody');
+      const generatePdfButton = document.getElementById('generatePdf');
+      const exportCsvButton   = document.getElementById('exportCsv');
+      const exportDocxButton  = document.getElementById('exportDocx');
+
+      console.log("exportDocxButton element:", exportDocxButton);
+
+      ////////////////////////////////////////////////////////////////////////////
+      // 3) Debounce Helper (1 second delay)
+      ////////////////////////////////////////////////////////////////////////////
+      function debounce(fn, delay) {
+        let timeout;
+        return (...args) => {
+          clearTimeout(timeout);
+          timeout = setTimeout(() => fn(...args), delay);
+        };
+      }
+
+      ////////////////////////////////////////////////////////////////////////////
+      // 4) Update <datalist> (limit suggestions)
+      ////////////////////////////////////////////////////////////////////////////
+      function updateCodeSuggestions() {
+        codeSuggestions.innerHTML = '';
+        const typed = searchCodeInput.value.trim().toLowerCase();
+        let matched = typed ? allCodes.filter(code => code.toLowerCase().includes(typed)) : allCodes;
+        const MAX_SUGGESTIONS = 50;
+        matched.slice(0, MAX_SUGGESTIONS).forEach(code => {
+          const opt = document.createElement('option');
+          opt.value = code;
+          codeSuggestions.appendChild(opt);
+        });
+      }
+
+      ////////////////////////////////////////////////////////////////////////////
+      // 5) Render the table with filtering
+      ////////////////////////////////////////////////////////////////////////////
+      function renderEntries() {
+        entriesTableBody.innerHTML = '';
+        const filterText = searchCodeInput.value.trim().toLowerCase();
+        let rowsToShow = filterText 
+          ? entries.filter(entry => entry.assetCode.toLowerCase().includes(filterText))
+          : entries;
+        rowsToShow = rowsToShow.slice(0, 50);
+        rowsToShow.forEach(entry => {
+          const row = document.createElement('tr');
+
+          // Asset Code
+          const assetTd = document.createElement('td');
+          assetTd.setAttribute('data-label', 'Asset Code');
+          const assetArea = document.createElement('textarea');
+          assetArea.value = entry.assetCode;
+          assetArea.rows = 1;
+          assetArea.style.width = '100%';
+          assetArea.oninput = () => {
+            entry.assetCode = assetArea.value;
+            updateEntryInDB(entry).catch(err => console.error("Error updating entry:", err));
+          };
+          assetTd.appendChild(assetArea);
+          row.appendChild(assetTd);
+
+          // Photo
+          const photoTd = document.createElement('td');
+          photoTd.setAttribute('data-label', 'Photo');
+          const img = document.createElement('img');
+          img.src = entry.image;
+          photoTd.appendChild(img);
+          row.appendChild(photoTd);
+
+          // Deviation
+          const deviationTd = document.createElement('td');
+          deviationTd.setAttribute('data-label', 'Deviation');
+          const deviationArea = document.createElement('textarea');
+          deviationArea.value = entry.deviation;
+          deviationArea.rows = 2;
+          deviationArea.style.width = '100%';
+          deviationArea.oninput = () => {
+            entry.deviation = deviationArea.value;
+            updateEntryInDB(entry).catch(err => console.error("Error updating entry:", err));
+          };
+          deviationTd.appendChild(deviationArea);
+          row.appendChild(deviationTd);
+
+          // Remedial Action
+          const remTd = document.createElement('td');
+          remTd.setAttribute('data-label', 'Remedial Action');
+          const remArea = document.createElement('textarea');
+          remArea.value = entry.remedial;
+          remArea.rows = 2;
+          remArea.style.width = '100%';
+          remArea.oninput = () => {
+            entry.remedial = remArea.value;
+            updateEntryInDB(entry).catch(err => console.error("Error updating entry:", err));
+          };
+          remTd.appendChild(remArea);
+          row.appendChild(remTd);
+
+          // Criticality
+          const criticalityTd = document.createElement('td');
+          criticalityTd.setAttribute('data-label', 'Criticality');
+          const criticalityArea = document.createElement('textarea');
+          criticalityArea.value = entry.criticality;
+          criticalityArea.rows = 1;
+          criticalityArea.style.width = '100%';
+          criticalityArea.oninput = () => {
+            entry.criticality = criticalityArea.value;
+            updateEntryInDB(entry).catch(err => console.error("Error updating entry:", err));
+          };
+          criticalityTd.appendChild(criticalityArea);
+          row.appendChild(criticalityTd);
+
+          // Actions
+          const actionsTd = document.createElement('td');
+          actionsTd.setAttribute('data-label', 'Actions');
+          const deleteBtn = document.createElement('button');
+          deleteBtn.textContent = 'Delete';
+          deleteBtn.onclick = () => {
+            if (confirm("Are you sure you want to delete this entry?")) {
+              removeEntryFromDB(entry.id)
+                .then(() => refreshEntries())
+                .catch(err => console.error("Error deleting entry:", err));
+            }
+          };
+          actionsTd.appendChild(deleteBtn);
+          row.appendChild(actionsTd);
+
+          entriesTableBody.appendChild(row);
+        });
+      }
+
+      ////////////////////////////////////////////////////////////////////////////
+      // 6) Add new entry form
+      ////////////////////////////////////////////////////////////////////////////
+      entryForm.addEventListener('submit', e => {
+        e.preventDefault();
+        const code = searchCodeInput.value.trim();
+        const file = imageInput.files[0];
+        const deviation = deviationInput.value.trim();
+        const criticality = criticalityInput.value.trim();
+        const remd = remedialInput.value.trim();
+
+        if (!code) {
+          alert('Please type or pick an Asset Code before adding an entry.');
+          return;
+        }
+        if (!file) {
+          alert('Please select a photo.');
+          return;
+        }
+        if (!deviation || !criticality || !remd) {
+          alert('Please fill out all fields (Deviation, Criticality, and Remedial Action).');
+          return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = function(evt) {
+          const imageData = evt.target.result;
+          const newEntry = {
+            assetCode: code,
+            image: imageData,
+            deviation: deviation,
+            remedial: remd,
+            criticality: criticality,
+            timestamp: Date.now()
+          };
+          addEntryToDB(newEntry)
+            .then(() => {
+              refreshEntries();
+              entryForm.reset();
+            })
+            .catch(err => console.error("Error adding entry:", err));
+        };
+        reader.readAsDataURL(file);
       });
 
-      doc.save('deviation_tracker.pdf');
-    });
+      ////////////////////////////////////////////////////////////////////////////
+      // 7) Debounced search for datalist and table filter
+      ////////////////////////////////////////////////////////////////////////////
+      const handleSearch = debounce(() => {
+        updateCodeSuggestions();
+        renderEntries();
+      }, 1000);
+      searchCodeInput.addEventListener('input', handleSearch);
 
-    ////////////////////////////////////////////////////////////////////////////
-    // 9) Helper: Convert base64 string to ArrayBuffer
-    ////////////////////////////////////////////////////////////////////////////
-    function base64ToArrayBuffer(base64) {
-      const binaryString = window.atob(base64);
-      const len = binaryString.length;
-      const bytes = new Uint8Array(len);
-      for (let i = 0; i < len; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-      return bytes.buffer;
-    }
+      ////////////////////////////////////////////////////////////////////////////
+      // 8) Generate PDF using jsPDF in landscape ensuring complete rows on pages
+      ////////////////////////////////////////////////////////////////////////////
+      generatePdfButton.addEventListener('click', () => {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF('l', 'pt', 'letter');
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+        const margin = 40;
+        const startX = margin;
+        let currentY = margin;
+        const availableWidth = pageWidth - 2 * margin;
+        const colAssetW = 60;
+        const colDeviationW = 120;
+        const colRemedialW = 120;
+        const colCriticalityW = 60;
+        const colPhotoW = availableWidth - (colAssetW + colDeviationW + colRemedialW + colCriticalityW);
+        const tableW = colAssetW + colPhotoW + colDeviationW + colRemedialW + colCriticalityW;
+        const rowHeight = 130;
+        const headerHeight = 30;
 
-    ////////////////////////////////////////////////////////////////////////////
-    // 10) Export DOCX function using the docx library
-    ////////////////////////////////////////////////////////////////////////////
-    exportDocxButton.addEventListener('click', async () => {
-      console.log("Export DOCX button clicked.");
-      const { Document, Packer, Paragraph, Table, TableRow, TableCell, ImageRun } = window.docx;
+        function drawTableHeader() {
+          drawRowBorder(currentY, headerHeight);
+          doc.setFontSize(12);
+          doc.text('Asset', startX + 5, currentY + 18);
+          doc.text('Photo', startX + colAssetW + 5, currentY + 18);
+          doc.text('Deviation', startX + colAssetW + colPhotoW + 5, currentY + 18);
+          doc.text('Remedial', startX + colAssetW + colPhotoW + colDeviationW + 5, currentY + 18);
+          doc.text('Criticality', startX + colAssetW + colPhotoW + colDeviationW + colRemedialW + 5, currentY + 18);
+          currentY += headerHeight;
+        }
 
-      // Build a header row for the table.
-      const tableRows = [];
-      tableRows.push(new TableRow({
-          children: [
-              new TableCell({ children: [new Paragraph("Asset Code")] }),
-              new TableCell({ children: [new Paragraph("Photo")] }),
-              new TableCell({ children: [new Paragraph("Deviation")] }),
-              new TableCell({ children: [new Paragraph("Remedial Action")] }),
-              new TableCell({ children: [new Paragraph("Criticality")] }),
-              new TableCell({ children: [new Paragraph("Timestamp")] }),
-          ]
-      }));
+        function drawRowBorder(y, height) {
+          doc.line(startX, y, startX + tableW, y);
+          doc.line(startX, y + height, startX + tableW, y + height);
+          doc.line(startX, y, startX, y + height);
+          doc.line(startX + colAssetW, y, startX + colAssetW, y + height);
+          doc.line(startX + colAssetW + colPhotoW, y, startX + colAssetW + colPhotoW, y + height);
+          doc.line(startX + colAssetW + colPhotoW + colDeviationW, y, startX + colAssetW + colPhotoW + colDeviationW, y + height);
+          doc.line(startX + colAssetW + colPhotoW + colDeviationW + colRemedialW, y, startX + colAssetW + colPhotoW + colDeviationW + colRemedialW, y + height);
+          doc.line(startX + tableW, y, startX + tableW, y + height);
+        }
 
-      // For each entry, create a table row.
-      entries.forEach(entry => {
-          let base64Data = "";
-          if (entry.image && entry.image.includes(",")) {
-              base64Data = entry.image.split(",")[1];
-          } else {
-              base64Data = entry.image;
+        doc.setFontSize(14);
+        doc.text('Deviation Table', startX, currentY);
+        currentY += 10;
+        drawTableHeader();
+
+        const pdfEntries = entries.filter(entry => {
+          const filterText = searchCodeInput.value.trim().toLowerCase();
+          return filterText ? entry.assetCode.toLowerCase().includes(filterText) : true;
+        });
+
+        pdfEntries.forEach(entry => {
+          if (currentY + rowHeight > pageHeight - margin) {
+            doc.addPage();
+            currentY = margin;
+            drawTableHeader();
           }
-          // Convert base64 string to an ArrayBuffer.
-          const arrayBuffer = base64ToArrayBuffer(base64Data);
+          drawRowBorder(currentY, rowHeight);
+          doc.setFontSize(10);
+          const assetX = startX + 5;
+          const assetY = currentY + 20;
+          const assetW_ = colAssetW - 10;
+          const assetLines = doc.splitTextToSize(entry.assetCode, assetW_);
+          doc.text(assetLines, assetX, assetY);
+          const imgX = startX + colAssetW + 5;
+          const maxImgWidth = colPhotoW - 10;
+          const maxImgHeight = rowHeight - 10;
+          try {
+            const isPng = (entry.image || '').toLowerCase().includes('image/png');
+            const format = isPng ? 'PNG' : 'JPEG';
+            const props = doc.getImageProperties(entry.image);
+            let iWidth = props.width;
+            let iHeight = props.height;
+            const ratio = Math.min(maxImgWidth / iWidth, maxImgHeight / iHeight);
+            iWidth *= ratio;
+            iHeight *= ratio;
+            const yOffset = (rowHeight - iHeight) / 2;
+            doc.addImage(entry.image, format, imgX, currentY + yOffset, iWidth, iHeight);
+          } catch (err) {
+            console.error('Image error:', err);
+          }
+          const deviationX = startX + colAssetW + colPhotoW + 5;
+          const deviationY = currentY + 20;
+          const deviationW_ = colDeviationW - 10;
+          const deviationLines = doc.splitTextToSize(entry.deviation, deviationW_);
+          doc.text(deviationLines, deviationX, deviationY);
+          const remedX = startX + colAssetW + colPhotoW + colDeviationW + 5;
+          const remedY = currentY + 20;
+          const remedW_ = colRemedialW - 10;
+          const remedLines = doc.splitTextToSize(entry.remedial, remedW_);
+          doc.text(remedLines, remedX, remedY);
+          const criticalX = startX + colAssetW + colPhotoW + colDeviationW + colRemedialW + 5;
+          const criticalY = currentY + 20;
+          const criticalW_ = colCriticalityW - 10;
+          const criticalLines = doc.splitTextToSize(entry.criticality, criticalW_);
+          doc.text(criticalLines, criticalX, criticalY);
+          currentY += rowHeight;
+        });
 
-          // Create an ImageRun for the photo.
-          const imageParagraph = new Paragraph({
-              children: [
-                  new ImageRun({
-                      data: arrayBuffer,  // Pass the ArrayBuffer directly
-                      transformation: {
-                          width: 150,
-                          height: 150,
-                      }
-                  })
-              ]
-          });
+        doc.save('deviation_tracker.pdf');
+      });
+
+      ////////////////////////////////////////////////////////////////////////////
+      // 9) Helper: Convert base64 string to ArrayBuffer
+      ////////////////////////////////////////////////////////////////////////////
+      function base64ToArrayBuffer(base64) {
+        const binaryString = window.atob(base64);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        return bytes.buffer;
+      }
+
+      ////////////////////////////////////////////////////////////////////////////
+      // 10) Export DOCX function using the docx library
+      ////////////////////////////////////////////////////////////////////////////
+      exportDocxButton.addEventListener('click', async () => {
+        console.log("Export DOCX button clicked.");
+        try {
+          const { Document, Packer, Paragraph, Table, TableRow, TableCell, ImageRun } = window.docx;
+          // Build a header row for the table.
+          const tableRows = [];
           tableRows.push(new TableRow({
               children: [
-                  new TableCell({ children: [new Paragraph(entry.assetCode)] }),
-                  new TableCell({ children: [imageParagraph] }),
-                  new TableCell({ children: [new Paragraph(entry.deviation)] }),
-                  new TableCell({ children: [new Paragraph(entry.remedial)] }),
-                  new TableCell({ children: [new Paragraph(entry.criticality)] }),
-                  new TableCell({ children: [new Paragraph(new Date(entry.timestamp).toLocaleString())] }),
+                  new TableCell({ children: [new Paragraph("Asset Code")] }),
+                  new TableCell({ children: [new Paragraph("Photo")] }),
+                  new TableCell({ children: [new Paragraph("Deviation")] }),
+                  new TableCell({ children: [new Paragraph("Remedial Action")] }),
+                  new TableCell({ children: [new Paragraph("Criticality")] }),
+                  new TableCell({ children: [new Paragraph("Timestamp")] }),
               ]
           }));
+
+          // For each entry, create a table row.
+          entries.forEach(entry => {
+              let base64Data = "";
+              if (entry.image && entry.image.includes(",")) {
+                  base64Data = entry.image.split(",")[1];
+              } else {
+                  base64Data = entry.image;
+              }
+              // Convert base64 string to an ArrayBuffer.
+              const arrayBuffer = base64ToArrayBuffer(base64Data);
+              // Create an ImageRun for the photo.
+              const imageParagraph = new Paragraph({
+                  children: [
+                      new ImageRun({
+                          data: arrayBuffer,
+                          transformation: {
+                              width: 150,
+                              height: 150,
+                          }
+                      })
+                  ]
+              });
+              tableRows.push(new TableRow({
+                  children: [
+                      new TableCell({ children: [new Paragraph(entry.assetCode)] }),
+                      new TableCell({ children: [imageParagraph] }),
+                      new TableCell({ children: [new Paragraph(entry.deviation)] }),
+                      new TableCell({ children: [new Paragraph(entry.remedial)] }),
+                      new TableCell({ children: [new Paragraph(entry.criticality)] }),
+                      new TableCell({ children: [new Paragraph(new Date(entry.timestamp).toLocaleString())] }),
+                  ]
+              }));
+          });
+
+          // Create the table.
+          const table = new Table({
+              rows: tableRows,
+              width: {
+                  size: 100,
+                  type: "pct",
+              },
+          });
+
+          // Create the document with a title and the table.
+          const doc = new Document({
+              sections: [{
+                  properties: {},
+                  children: [
+                      new Paragraph({
+                          text: "Deviation Table",
+                          heading: "Heading1",
+                          alignment: "center"
+                      }),
+                      table,
+                  ]
+              }]
+          });
+
+          // Generate the document as a Blob and trigger a download.
+          const blob = await Packer.toBlob(doc);
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "deviation_tracker.docx";
+          a.click();
+          URL.revokeObjectURL(url);
+          console.log("DOCX export completed.");
+        } catch (err) {
+          console.error("Error exporting DOCX:", err);
+        }
       });
 
-      // Create the table.
-      const table = new Table({
-          rows: tableRows,
-          width: {
-              size: 100,
-              type: "pct",
-          },
-      });
-
-      // Create the document with a title and the table.
-      const doc = new Document({
-          sections: [{
-              properties: {},
-              children: [
-                  new Paragraph({
-                      text: "Deviation Table",
-                      heading: "Heading1",
-                      alignment: "center"
-                  }),
-                  table,
-              ]
-          }]
-      });
-
-      // Generate the document as a Blob and trigger a download.
-      const blob = await Packer.toBlob(doc);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "deviation_tracker.docx";
-      a.click();
-      URL.revokeObjectURL(url);
+      ////////////////////////////////////////////////////////////////////////////
+      // 11) On load: Open DB and load entries
+      ////////////////////////////////////////////////////////////////////////////
+      openDatabase()
+        .then(() => refreshEntries())
+        .catch(err => console.error("Failed to open database:", err));
     });
-
-    ////////////////////////////////////////////////////////////////////////////
-    // 11) On load: Open DB and load entries
-    ////////////////////////////////////////////////////////////////////////////
-    openDatabase()
-      .then(() => refreshEntries())
-      .catch(err => console.error("Failed to open database:", err));
   </script>
 </body>
 </html>
