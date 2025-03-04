@@ -5,6 +5,10 @@
   <title>Asset Deviation Tracker</title>
   <!-- Make pages scale nicely on phones -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- DOCX library reference added -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/docx/7.6.0/docx.min.js"></script>
+  <!-- jsPDF from CDN for PDF generation -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <style>
     /* Global styling with gradient background and emojis */
     body {
@@ -23,38 +27,6 @@
       text-align: center;
       margin-top: 10px;
       margin-bottom: 10px;
-    }
-    /* Table tabs container styling */
-    #tableTabsContainer {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      margin-bottom: 20px;
-    }
-    #tableTabs {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      margin-bottom: 10px;
-    }
-    .table-tab {
-      padding: 8px 12px;
-      border: 1px solid #0078d7;
-      border-radius: 4px;
-      cursor: pointer;
-      background-color: #ffffff;
-      display: flex;
-      align-items: center;
-    }
-    .table-tab.active {
-      background-color: #0078d7;
-      color: white;
-    }
-    .table-tab span.remove-btn {
-      margin-left: 8px;
-      color: red;
-      font-weight: bold;
-      cursor: pointer;
     }
     form, .buttons {
       margin: 20px 0;
@@ -156,13 +128,7 @@
 </head>
 <body>
   <h1>Asset Deviation Tracker</h1>
-
-  <!-- Table Tabs Container -->
-  <div id="tableTabsContainer">
-    <div id="tableTabs"></div>
-    <button id="addTableBtn">Add New Table</button>
-  </div>
-
+  
   <!-- Asset Code input with datalist -->
   <label for="searchCodeInput">Asset Code (Search or type custom):</label>
   <input type="text" id="searchCodeInput" placeholder="e.g. 131-CON-01..." list="codeSuggestions" />
@@ -192,6 +158,8 @@
   <div class="buttons">
     <button id="generatePdf">Generate PDF</button>
     <button id="exportCsv">Export CSV</button>
+    <!-- Export DOCX button re-added -->
+    <button id="exportDocx">Export DOCX</button>
   </div>
 
   <h2>Existing Entries</h2>
@@ -209,22 +177,16 @@
     <tbody></tbody>
   </table>
 
-  <!-- jsPDF from CDN for PDF generation -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script>
-    // Wrap all initialization in DOMContentLoaded
     document.addEventListener("DOMContentLoaded", () => {
       ////////////////////////////////////////////////////////////////////////////
       // IndexedDB Storage Functions
       ////////////////////////////////////////////////////////////////////////////
       const DB_NAME = 'DeviationsDB';
       const DB_VERSION = 1;
-      const ENTRIES_STORE = 'entries';
-      const TABLES_STORE = 'tables';
+      const STORE_NAME = 'entries';
       let db;
-      let entries = []; // In-memory array of all deviation entries
-      let tables = [];  // In-memory array of all table definitions
-      let activeTableId; // Currently selected table id
+      let entries = []; // In-memory array of all entries
 
       function openDatabase() {
         return new Promise((resolve, reject) => {
@@ -235,11 +197,8 @@
           };
           request.onupgradeneeded = event => {
             db = event.target.result;
-            if (!db.objectStoreNames.contains(ENTRIES_STORE)) {
-              db.createObjectStore(ENTRIES_STORE, { keyPath: 'id', autoIncrement: true });
-            }
-            if (!db.objectStoreNames.contains(TABLES_STORE)) {
-              db.createObjectStore(TABLES_STORE, { keyPath: 'id', autoIncrement: true });
+            if (!db.objectStoreNames.contains(STORE_NAME)) {
+              db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
             }
           };
           request.onsuccess = event => {
@@ -249,11 +208,10 @@
         });
       }
 
-      // Entry store functions
       function getAllEntriesFromDB() {
         return new Promise((resolve, reject) => {
-          const transaction = db.transaction([ENTRIES_STORE], 'readonly');
-          const store = transaction.objectStore(ENTRIES_STORE);
+          const transaction = db.transaction([STORE_NAME], 'readonly');
+          const store = transaction.objectStore(STORE_NAME);
           const request = store.getAll();
           request.onsuccess = event => resolve(event.target.result);
           request.onerror = event => reject(event.target.error);
@@ -262,8 +220,8 @@
 
       function addEntryToDB(entry) {
         return new Promise((resolve, reject) => {
-          const transaction = db.transaction([ENTRIES_STORE], 'readwrite');
-          const store = transaction.objectStore(ENTRIES_STORE);
+          const transaction = db.transaction([STORE_NAME], 'readwrite');
+          const store = transaction.objectStore(STORE_NAME);
           const request = store.add(entry);
           request.onsuccess = event => {
             entry.id = event.target.result;
@@ -275,8 +233,8 @@
 
       function updateEntryInDB(entry) {
         return new Promise((resolve, reject) => {
-          const transaction = db.transaction([ENTRIES_STORE], 'readwrite');
-          const store = transaction.objectStore(ENTRIES_STORE);
+          const transaction = db.transaction([STORE_NAME], 'readwrite');
+          const store = transaction.objectStore(STORE_NAME);
           const request = store.put(entry);
           request.onsuccess = () => resolve();
           request.onerror = event => reject(event.target.error);
@@ -285,87 +243,20 @@
 
       function removeEntryFromDB(id) {
         return new Promise((resolve, reject) => {
-          const transaction = db.transaction([ENTRIES_STORE], 'readwrite');
-          const store = transaction.objectStore(ENTRIES_STORE);
+          const transaction = db.transaction([STORE_NAME], 'readwrite');
+          const store = transaction.objectStore(STORE_NAME);
           const request = store.delete(id);
           request.onsuccess = () => resolve();
           request.onerror = event => reject(event.target.error);
         });
       }
 
-      // Table store functions
-      function getAllTablesFromDB() {
-        return new Promise((resolve, reject) => {
-          const transaction = db.transaction([TABLES_STORE], 'readonly');
-          const store = transaction.objectStore(TABLES_STORE);
-          const request = store.getAll();
-          request.onsuccess = event => resolve(event.target.result);
-          request.onerror = event => reject(event.target.error);
-        });
-      }
-
-      function addTableToDB(table) {
-        return new Promise((resolve, reject) => {
-          const transaction = db.transaction([TABLES_STORE], 'readwrite');
-          const store = transaction.objectStore(TABLES_STORE);
-          const request = store.add(table);
-          request.onsuccess = event => {
-            table.id = event.target.result;
-            resolve(table);
-          };
-          request.onerror = event => reject(event.target.error);
-        });
-      }
-
-      function updateTableInDB(table) {
-        return new Promise((resolve, reject) => {
-          const transaction = db.transaction([TABLES_STORE], 'readwrite');
-          const store = transaction.objectStore(TABLES_STORE);
-          const request = store.put(table);
-          request.onsuccess = () => resolve();
-          request.onerror = event => reject(event.target.error);
-        });
-      }
-
-      function removeTableFromDB(id) {
-        return new Promise((resolve, reject) => {
-          const transaction = db.transaction([TABLES_STORE], 'readwrite');
-          const store = transaction.objectStore(TABLES_STORE);
-          const request = store.delete(id);
-          request.onsuccess = () => resolve();
-          request.onerror = event => reject(event.target.error);
-        });
-      }
-
-      ////////////////////////////////////////////////////////////////////////////
-      // Refresh functions
-      ////////////////////////////////////////////////////////////////////////////
       async function refreshEntries() {
         try {
           entries = await getAllEntriesFromDB();
           renderEntries();
         } catch (err) {
           console.error("Error refreshing entries:", err);
-        }
-      }
-
-      async function refreshTables() {
-        try {
-          tables = await getAllTablesFromDB();
-          if (tables.length === 0) {
-            // Create a default table if none exist
-            const defaultTable = { name: "Default Table" };
-            await addTableToDB(defaultTable);
-            tables = await getAllTablesFromDB();
-          }
-          // If activeTableId is not set or deleted, use the first table's id.
-          if (!activeTableId || !tables.find(t => t.id === activeTableId)) {
-            activeTableId = tables[0].id;
-          }
-          renderTableTabs();
-          refreshEntries();
-        } catch (err) {
-          console.error("Error refreshing tables:", err);
         }
       }
 
@@ -398,8 +289,7 @@
       const entriesTableBody  = document.querySelector('#entriesTable tbody');
       const generatePdfButton = document.getElementById('generatePdf');
       const exportCsvButton   = document.getElementById('exportCsv');
-      const tableTabsDiv      = document.getElementById('tableTabs');
-      const addTableBtn       = document.getElementById('addTableBtn');
+      const exportDocxButton  = document.getElementById('exportDocx');
 
       ////////////////////////////////////////////////////////////////////////////
       // 3) Debounce Helper (1 second delay)
@@ -428,82 +318,15 @@
       }
 
       ////////////////////////////////////////////////////////////////////////////
-      // 5) Render the table tabs
-      ////////////////////////////////////////////////////////////////////////////
-      function renderTableTabs() {
-        tableTabsDiv.innerHTML = '';
-        tables.forEach(table => {
-          const tab = document.createElement('div');
-          tab.classList.add('table-tab');
-          if (table.id === activeTableId) tab.classList.add('active');
-          tab.textContent = table.name;
-          tab.dataset.id = table.id;
-
-          // Click event: set active table and refresh entries
-          tab.addEventListener('click', () => {
-            activeTableId = table.id;
-            renderTableTabs();
-            refreshEntries();
-          });
-
-          // Double-click event: allow renaming the table
-          tab.addEventListener('dblclick', async () => {
-            const newName = prompt("Enter new table name:", table.name);
-            if (newName && newName.trim() !== "") {
-              table.name = newName.trim();
-              try {
-                await updateTableInDB(table);
-                refreshTables();
-              } catch (err) {
-                console.error("Error updating table name:", err);
-              }
-            }
-          });
-
-          // Add remove button/icon to each tab
-          const removeBtn = document.createElement('span');
-          removeBtn.textContent = "×";
-          removeBtn.classList.add('remove-btn');
-          removeBtn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            if (confirm("Are you sure you want to delete this table and all its entries?")) {
-              try {
-                const tableIdToRemove = table.id;
-                // Remove all entries linked to this table
-                const entriesToRemove = entries.filter(entry => entry.tableId === tableIdToRemove);
-                for (let entry of entriesToRemove) {
-                  await removeEntryFromDB(entry.id);
-                }
-                // Remove the table from the database
-                await removeTableFromDB(tableIdToRemove);
-                // If active table is removed, set activeTableId to another available table (or null)
-                if (activeTableId === tableIdToRemove) {
-                  const otherTable = tables.find(t => t.id !== tableIdToRemove);
-                  activeTableId = otherTable ? otherTable.id : null;
-                }
-                refreshTables();
-              } catch (err) {
-                console.error("Error deleting table:", err);
-              }
-            }
-          });
-          tab.appendChild(removeBtn);
-          tableTabsDiv.appendChild(tab);
-        });
-      }
-
-      ////////////////////////////////////////////////////////////////////////////
-      // 6) Render the entries table (filter by active table and search)
+      // 5) Render the table with filtering
       ////////////////////////////////////////////////////////////////////////////
       function renderEntries() {
         entriesTableBody.innerHTML = '';
         const filterText = searchCodeInput.value.trim().toLowerCase();
-        // Only show entries for the active table
-        let filteredEntries = entries.filter(entry => entry.tableId === activeTableId);
-        if (filterText) {
-          filteredEntries = filteredEntries.filter(entry => entry.assetCode.toLowerCase().includes(filterText));
-        }
-        const rowsToShow = filteredEntries.slice(0, 50);
+        let rowsToShow = filterText 
+          ? entries.filter(entry => entry.assetCode.toLowerCase().includes(filterText))
+          : entries;
+        rowsToShow = rowsToShow.slice(0, 50);
         rowsToShow.forEach(entry => {
           const row = document.createElement('tr');
 
@@ -591,7 +414,7 @@
       }
 
       ////////////////////////////////////////////////////////////////////////////
-      // 7) Add new entry form (include activeTableId)
+      // 6) Add new entry form
       ////////////////////////////////////////////////////////////////////////////
       entryForm.addEventListener('submit', e => {
         e.preventDefault();
@@ -623,8 +446,7 @@
             deviation: deviation,
             remedial: remd,
             criticality: criticality,
-            timestamp: Date.now(),
-            tableId: activeTableId
+            timestamp: Date.now()
           };
           addEntryToDB(newEntry)
             .then(() => {
@@ -637,7 +459,7 @@
       });
 
       ////////////////////////////////////////////////////////////////////////////
-      // 8) Debounced search for datalist and table filter
+      // 7) Debounced search for datalist and table filter
       ////////////////////////////////////////////////////////////////////////////
       const handleSearch = debounce(() => {
         updateCodeSuggestions();
@@ -646,24 +468,7 @@
       searchCodeInput.addEventListener('input', handleSearch);
 
       ////////////////////////////////////////////////////////////////////////////
-      // 9) Add new table button event (capture returned table object)
-      ////////////////////////////////////////////////////////////////////////////
-      addTableBtn.addEventListener('click', async () => {
-        const tableName = prompt("Enter new table name:");
-        if (tableName && tableName.trim() !== "") {
-          try {
-            const newTable = { name: tableName.trim() };
-            const addedTable = await addTableToDB(newTable);
-            activeTableId = addedTable.id;
-            refreshTables();
-          } catch (err) {
-            console.error("Error adding new table:", err);
-          }
-        }
-      });
-
-      ////////////////////////////////////////////////////////////////////////////
-      // 10) Generate PDF using jsPDF (only for active table)
+      // 8) Generate PDF using jsPDF in landscape ensuring complete rows on pages
       ////////////////////////////////////////////////////////////////////////////
       generatePdfButton.addEventListener('click', () => {
         const { jsPDF } = window.jspdf;
@@ -710,10 +515,10 @@
         currentY += 10;
         drawTableHeader();
 
-        const filterText = searchCodeInput.value.trim().toLowerCase();
-        const pdfEntries = entries.filter(entry => 
-          entry.tableId === activeTableId && (filterText ? entry.assetCode.toLowerCase().includes(filterText) : true)
-        );
+        const pdfEntries = entries.filter(entry => {
+          const filterText = searchCodeInput.value.trim().toLowerCase();
+          return filterText ? entry.assetCode.toLowerCase().includes(filterText) : true;
+        });
 
         pdfEntries.forEach(entry => {
           if (currentY + rowHeight > pageHeight - margin) {
@@ -767,10 +572,111 @@
       });
 
       ////////////////////////////////////////////////////////////////////////////
-      // 11) On load: Open DB and load tables and entries
+      // 9) Export DOCX functionality using docx library
+      ////////////////////////////////////////////////////////////////////////////
+
+      // Helper: Convert base64 image data to ArrayBuffer
+      function base64ToArrayBuffer(base64) {
+        const base64WithoutPrefix = base64.split(',')[1];
+        const binaryString = window.atob(base64WithoutPrefix);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        return bytes.buffer;
+      }
+
+      exportDocxButton.addEventListener('click', async () => {
+        const { Document, Packer, Paragraph, Table, TableRow, TableCell, ImageRun } = window.docx;
+        const rows = [];
+
+        // Header row for the table
+        rows.push(new TableRow({
+          children: [
+            new TableCell({ children: [new Paragraph("Asset Code")] }),
+            new TableCell({ children: [new Paragraph("Photo")] }),
+            new TableCell({ children: [new Paragraph("Deviation")] }),
+            new TableCell({ children: [new Paragraph("Remedial Action")] }),
+            new TableCell({ children: [new Paragraph("Criticality")] }),
+          ]
+        }));
+
+        // Data rows from entries
+        for (const entry of entries) {
+          // Asset Code cell
+          const assetCell = new TableCell({
+            children: [new Paragraph(entry.assetCode)]
+          });
+
+          // Photo cell with image (if available)
+          let imageCell;
+          try {
+            const arrayBuffer = base64ToArrayBuffer(entry.image);
+            const imageRun = new ImageRun({
+              data: arrayBuffer,
+              transformation: {
+                width: 100,
+                height: 75,
+              },
+            });
+            imageCell = new TableCell({
+              children: [new Paragraph({ children: [imageRun] })]
+            });
+          } catch (e) {
+            imageCell = new TableCell({
+              children: [new Paragraph("No Image")]
+            });
+          }
+
+          // Other cells
+          const deviationCell = new TableCell({
+            children: [new Paragraph(entry.deviation)]
+          });
+          const remedialCell = new TableCell({
+            children: [new Paragraph(entry.remedial)]
+          });
+          const criticalityCell = new TableCell({
+            children: [new Paragraph(entry.criticality)]
+          });
+
+          rows.push(new TableRow({
+            children: [assetCell, imageCell, deviationCell, remedialCell, criticalityCell]
+          }));
+        }
+
+        // Create table and document
+        const table = new Table({ rows });
+        const doc = new Document({
+          sections: [
+            {
+              children: [
+                new Paragraph({
+                  text: "Asset Deviation Tracker",
+                  heading: "Heading1"
+                }),
+                table,
+              ]
+            }
+          ]
+        });
+
+        // Convert document to Blob and trigger download
+        Packer.toBlob(doc).then(blob => {
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = 'deviation_tracker.docx';
+          link.click();
+          URL.revokeObjectURL(url);
+        });
+      });
+
+      ////////////////////////////////////////////////////////////////////////////
+      // 10) On load: Open DB and load entries
       ////////////////////////////////////////////////////////////////////////////
       openDatabase()
-        .then(() => refreshTables())
+        .then(() => refreshEntries())
         .catch(err => console.error("Failed to open database:", err));
     });
   </script>
