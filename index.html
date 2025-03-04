@@ -5,8 +5,6 @@
   <title>Asset Deviation Tracker</title>
   <!-- Make pages scale nicely on phones -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <!-- DOCX library reference added -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/docx/7.6.0/docx.min.js"></script>
   <!-- jsPDF from CDN for PDF generation -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <style>
@@ -158,8 +156,8 @@
   <div class="buttons">
     <button id="generatePdf">Generate PDF</button>
     <button id="exportCsv">Export CSV</button>
-    <!-- Export DOCX button re-added -->
-    <button id="exportDocx">Export DOCX</button>
+    <!-- Clear All Entries button added -->
+    <button id="clearAll">Clear All Entries</button>
   </div>
 
   <h2>Existing Entries</h2>
@@ -250,6 +248,17 @@
           request.onerror = event => reject(event.target.error);
         });
       }
+      
+      // New helper function to clear all entries in the object store
+      function clearAllEntriesFromDB() {
+        return new Promise((resolve, reject) => {
+          const transaction = db.transaction([STORE_NAME], 'readwrite');
+          const store = transaction.objectStore(STORE_NAME);
+          const request = store.clear();
+          request.onsuccess = () => resolve();
+          request.onerror = event => reject(event.target.error);
+        });
+      }
 
       async function refreshEntries() {
         try {
@@ -289,7 +298,7 @@
       const entriesTableBody  = document.querySelector('#entriesTable tbody');
       const generatePdfButton = document.getElementById('generatePdf');
       const exportCsvButton   = document.getElementById('exportCsv');
-      const exportDocxButton  = document.getElementById('exportDocx');
+      const clearAllButton    = document.getElementById('clearAll');
 
       ////////////////////////////////////////////////////////////////////////////
       // 3) Debounce Helper (1 second delay)
@@ -572,104 +581,17 @@
       });
 
       ////////////////////////////////////////////////////////////////////////////
-      // 9) Export DOCX functionality using docx library
+      // 9) Clear All Entries functionality with user consent
       ////////////////////////////////////////////////////////////////////////////
-
-      // Helper: Convert base64 image data to ArrayBuffer
-      function base64ToArrayBuffer(base64) {
-        const base64WithoutPrefix = base64.split(',')[1];
-        const binaryString = window.atob(base64WithoutPrefix);
-        const len = binaryString.length;
-        const bytes = new Uint8Array(len);
-        for (let i = 0; i < len; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
-        }
-        return bytes.buffer;
-      }
-
-      exportDocxButton.addEventListener('click', async () => {
-        const { Document, Packer, Paragraph, Table, TableRow, TableCell, ImageRun } = window.docx;
-        const rows = [];
-
-        // Header row for the table
-        rows.push(new TableRow({
-          children: [
-            new TableCell({ children: [new Paragraph("Asset Code")] }),
-            new TableCell({ children: [new Paragraph("Photo")] }),
-            new TableCell({ children: [new Paragraph("Deviation")] }),
-            new TableCell({ children: [new Paragraph("Remedial Action")] }),
-            new TableCell({ children: [new Paragraph("Criticality")] }),
-          ]
-        }));
-
-        // Data rows from entries
-        for (const entry of entries) {
-          // Asset Code cell
-          const assetCell = new TableCell({
-            children: [new Paragraph(entry.assetCode)]
-          });
-
-          // Photo cell with image (if available)
-          let imageCell;
+      clearAllButton.addEventListener('click', async () => {
+        if (confirm("Are you sure you want to clear all entries? This action cannot be undone.")) {
           try {
-            const arrayBuffer = base64ToArrayBuffer(entry.image);
-            const imageRun = new ImageRun({
-              data: arrayBuffer,
-              transformation: {
-                width: 100,
-                height: 75,
-              },
-            });
-            imageCell = new TableCell({
-              children: [new Paragraph({ children: [imageRun] })]
-            });
-          } catch (e) {
-            imageCell = new TableCell({
-              children: [new Paragraph("No Image")]
-            });
+            await clearAllEntriesFromDB();
+            refreshEntries();
+          } catch (err) {
+            console.error("Error clearing entries:", err);
           }
-
-          // Other cells
-          const deviationCell = new TableCell({
-            children: [new Paragraph(entry.deviation)]
-          });
-          const remedialCell = new TableCell({
-            children: [new Paragraph(entry.remedial)]
-          });
-          const criticalityCell = new TableCell({
-            children: [new Paragraph(entry.criticality)]
-          });
-
-          rows.push(new TableRow({
-            children: [assetCell, imageCell, deviationCell, remedialCell, criticalityCell]
-          }));
         }
-
-        // Create table and document
-        const table = new Table({ rows });
-        const doc = new Document({
-          sections: [
-            {
-              children: [
-                new Paragraph({
-                  text: "Asset Deviation Tracker",
-                  heading: "Heading1"
-                }),
-                table,
-              ]
-            }
-          ]
-        });
-
-        // Convert document to Blob and trigger download
-        Packer.toBlob(doc).then(blob => {
-          const url = URL.createObjectURL(blob);
-          const link = document.createElement('a');
-          link.href = url;
-          link.download = 'deviation_tracker.docx';
-          link.click();
-          URL.revokeObjectURL(url);
-        });
       });
 
       ////////////////////////////////////////////////////////////////////////////
