@@ -43,10 +43,18 @@
       border-radius: 4px;
       cursor: pointer;
       background-color: #ffffff;
+      display: flex;
+      align-items: center;
     }
     .table-tab.active {
       background-color: #0078d7;
       color: white;
+    }
+    .table-tab span.remove-btn {
+      margin-left: 8px;
+      color: red;
+      font-weight: bold;
+      cursor: pointer;
     }
     form, .buttons {
       margin: 20px 0;
@@ -319,6 +327,16 @@
         });
       }
 
+      function removeTableFromDB(id) {
+        return new Promise((resolve, reject) => {
+          const transaction = db.transaction([TABLES_STORE], 'readwrite');
+          const store = transaction.objectStore(TABLES_STORE);
+          const request = store.delete(id);
+          request.onsuccess = () => resolve();
+          request.onerror = event => reject(event.target.error);
+        });
+      }
+
       ////////////////////////////////////////////////////////////////////////////
       // Refresh functions
       ////////////////////////////////////////////////////////////////////////////
@@ -420,12 +438,14 @@
           if (table.id === activeTableId) tab.classList.add('active');
           tab.textContent = table.name;
           tab.dataset.id = table.id;
+
           // Click event: set active table and refresh entries
           tab.addEventListener('click', () => {
             activeTableId = table.id;
             renderTableTabs();
             refreshEntries();
           });
+
           // Double-click event: allow renaming the table
           tab.addEventListener('dblclick', async () => {
             const newName = prompt("Enter new table name:", table.name);
@@ -439,6 +459,35 @@
               }
             }
           });
+
+          // Add remove button/icon to each tab
+          const removeBtn = document.createElement('span');
+          removeBtn.textContent = "×";
+          removeBtn.classList.add('remove-btn');
+          removeBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            if (confirm("Are you sure you want to delete this table and all its entries?")) {
+              try {
+                const tableIdToRemove = table.id;
+                // Remove all entries linked to this table
+                const entriesToRemove = entries.filter(entry => entry.tableId === tableIdToRemove);
+                for (let entry of entriesToRemove) {
+                  await removeEntryFromDB(entry.id);
+                }
+                // Remove the table from the database
+                await removeTableFromDB(tableIdToRemove);
+                // If active table is removed, set activeTableId to another available table (or null)
+                if (activeTableId === tableIdToRemove) {
+                  const otherTable = tables.find(t => t.id !== tableIdToRemove);
+                  activeTableId = otherTable ? otherTable.id : null;
+                }
+                refreshTables();
+              } catch (err) {
+                console.error("Error deleting table:", err);
+              }
+            }
+          });
+          tab.appendChild(removeBtn);
           tableTabsDiv.appendChild(tab);
         });
       }
@@ -597,16 +646,15 @@
       searchCodeInput.addEventListener('input', handleSearch);
 
       ////////////////////////////////////////////////////////////////////////////
-      // 9) Add new table button event
+      // 9) Add new table button event (capture returned table object)
       ////////////////////////////////////////////////////////////////////////////
       addTableBtn.addEventListener('click', async () => {
         const tableName = prompt("Enter new table name:");
         if (tableName && tableName.trim() !== "") {
           try {
             const newTable = { name: tableName.trim() };
-            await addTableToDB(newTable);
-            // Set the new table as active after creation
-            activeTableId = newTable.id;
+            const addedTable = await addTableToDB(newTable);
+            activeTableId = addedTable.id;
             refreshTables();
           } catch (err) {
             console.error("Error adding new table:", err);
