@@ -5,7 +5,6 @@
   <title>Asset Deviation Tracker</title>
   <!-- Make pages scale nicely on phones -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <!-- Removed DOCX library reference -->
   <style>
     /* Global styling with gradient background and emojis */
     body {
@@ -24,6 +23,30 @@
       text-align: center;
       margin-top: 10px;
       margin-bottom: 10px;
+    }
+    /* Table tabs container styling */
+    #tableTabsContainer {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+    #tableTabs {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+    .table-tab {
+      padding: 8px 12px;
+      border: 1px solid #0078d7;
+      border-radius: 4px;
+      cursor: pointer;
+      background-color: #ffffff;
+    }
+    .table-tab.active {
+      background-color: #0078d7;
+      color: white;
     }
     form, .buttons {
       margin: 20px 0;
@@ -125,7 +148,13 @@
 </head>
 <body>
   <h1>Asset Deviation Tracker</h1>
-  
+
+  <!-- Table Tabs Container -->
+  <div id="tableTabsContainer">
+    <div id="tableTabs"></div>
+    <button id="addTableBtn">Add New Table</button>
+  </div>
+
   <!-- Asset Code input with datalist -->
   <label for="searchCodeInput">Asset Code (Search or type custom):</label>
   <input type="text" id="searchCodeInput" placeholder="e.g. 131-CON-01..." list="codeSuggestions" />
@@ -155,7 +184,6 @@
   <div class="buttons">
     <button id="generatePdf">Generate PDF</button>
     <button id="exportCsv">Export CSV</button>
-    <!-- Removed Export DOCX button -->
   </div>
 
   <h2>Existing Entries</h2>
@@ -183,9 +211,12 @@
       ////////////////////////////////////////////////////////////////////////////
       const DB_NAME = 'DeviationsDB';
       const DB_VERSION = 1;
-      const STORE_NAME = 'entries';
+      const ENTRIES_STORE = 'entries';
+      const TABLES_STORE = 'tables';
       let db;
-      let entries = []; // In-memory array of all entries
+      let entries = []; // In-memory array of all deviation entries
+      let tables = [];  // In-memory array of all table definitions
+      let activeTableId; // Currently selected table id
 
       function openDatabase() {
         return new Promise((resolve, reject) => {
@@ -196,8 +227,11 @@
           };
           request.onupgradeneeded = event => {
             db = event.target.result;
-            if (!db.objectStoreNames.contains(STORE_NAME)) {
-              db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+            if (!db.objectStoreNames.contains(ENTRIES_STORE)) {
+              db.createObjectStore(ENTRIES_STORE, { keyPath: 'id', autoIncrement: true });
+            }
+            if (!db.objectStoreNames.contains(TABLES_STORE)) {
+              db.createObjectStore(TABLES_STORE, { keyPath: 'id', autoIncrement: true });
             }
           };
           request.onsuccess = event => {
@@ -207,10 +241,11 @@
         });
       }
 
+      // Entry store functions
       function getAllEntriesFromDB() {
         return new Promise((resolve, reject) => {
-          const transaction = db.transaction([STORE_NAME], 'readonly');
-          const store = transaction.objectStore(STORE_NAME);
+          const transaction = db.transaction([ENTRIES_STORE], 'readonly');
+          const store = transaction.objectStore(ENTRIES_STORE);
           const request = store.getAll();
           request.onsuccess = event => resolve(event.target.result);
           request.onerror = event => reject(event.target.error);
@@ -219,8 +254,8 @@
 
       function addEntryToDB(entry) {
         return new Promise((resolve, reject) => {
-          const transaction = db.transaction([STORE_NAME], 'readwrite');
-          const store = transaction.objectStore(STORE_NAME);
+          const transaction = db.transaction([ENTRIES_STORE], 'readwrite');
+          const store = transaction.objectStore(ENTRIES_STORE);
           const request = store.add(entry);
           request.onsuccess = event => {
             entry.id = event.target.result;
@@ -232,8 +267,8 @@
 
       function updateEntryInDB(entry) {
         return new Promise((resolve, reject) => {
-          const transaction = db.transaction([STORE_NAME], 'readwrite');
-          const store = transaction.objectStore(STORE_NAME);
+          const transaction = db.transaction([ENTRIES_STORE], 'readwrite');
+          const store = transaction.objectStore(ENTRIES_STORE);
           const request = store.put(entry);
           request.onsuccess = () => resolve();
           request.onerror = event => reject(event.target.error);
@@ -242,20 +277,77 @@
 
       function removeEntryFromDB(id) {
         return new Promise((resolve, reject) => {
-          const transaction = db.transaction([STORE_NAME], 'readwrite');
-          const store = transaction.objectStore(STORE_NAME);
+          const transaction = db.transaction([ENTRIES_STORE], 'readwrite');
+          const store = transaction.objectStore(ENTRIES_STORE);
           const request = store.delete(id);
           request.onsuccess = () => resolve();
           request.onerror = event => reject(event.target.error);
         });
       }
 
+      // Table store functions
+      function getAllTablesFromDB() {
+        return new Promise((resolve, reject) => {
+          const transaction = db.transaction([TABLES_STORE], 'readonly');
+          const store = transaction.objectStore(TABLES_STORE);
+          const request = store.getAll();
+          request.onsuccess = event => resolve(event.target.result);
+          request.onerror = event => reject(event.target.error);
+        });
+      }
+
+      function addTableToDB(table) {
+        return new Promise((resolve, reject) => {
+          const transaction = db.transaction([TABLES_STORE], 'readwrite');
+          const store = transaction.objectStore(TABLES_STORE);
+          const request = store.add(table);
+          request.onsuccess = event => {
+            table.id = event.target.result;
+            resolve(table);
+          };
+          request.onerror = event => reject(event.target.error);
+        });
+      }
+
+      function updateTableInDB(table) {
+        return new Promise((resolve, reject) => {
+          const transaction = db.transaction([TABLES_STORE], 'readwrite');
+          const store = transaction.objectStore(TABLES_STORE);
+          const request = store.put(table);
+          request.onsuccess = () => resolve();
+          request.onerror = event => reject(event.target.error);
+        });
+      }
+
+      ////////////////////////////////////////////////////////////////////////////
+      // Refresh functions
+      ////////////////////////////////////////////////////////////////////////////
       async function refreshEntries() {
         try {
           entries = await getAllEntriesFromDB();
           renderEntries();
         } catch (err) {
           console.error("Error refreshing entries:", err);
+        }
+      }
+
+      async function refreshTables() {
+        try {
+          tables = await getAllTablesFromDB();
+          if (tables.length === 0) {
+            // Create a default table if none exist
+            const defaultTable = { name: "Default Table" };
+            await addTableToDB(defaultTable);
+            tables = await getAllTablesFromDB();
+          }
+          // If activeTableId is not set or deleted, use the first table's id.
+          if (!activeTableId || !tables.find(t => t.id === activeTableId)) {
+            activeTableId = tables[0].id;
+          }
+          renderTableTabs();
+          refreshEntries();
+        } catch (err) {
+          console.error("Error refreshing tables:", err);
         }
       }
 
@@ -288,6 +380,8 @@
       const entriesTableBody  = document.querySelector('#entriesTable tbody');
       const generatePdfButton = document.getElementById('generatePdf');
       const exportCsvButton   = document.getElementById('exportCsv');
+      const tableTabsDiv      = document.getElementById('tableTabs');
+      const addTableBtn       = document.getElementById('addTableBtn');
 
       ////////////////////////////////////////////////////////////////////////////
       // 3) Debounce Helper (1 second delay)
@@ -316,15 +410,51 @@
       }
 
       ////////////////////////////////////////////////////////////////////////////
-      // 5) Render the table with filtering
+      // 5) Render the table tabs
+      ////////////////////////////////////////////////////////////////////////////
+      function renderTableTabs() {
+        tableTabsDiv.innerHTML = '';
+        tables.forEach(table => {
+          const tab = document.createElement('div');
+          tab.classList.add('table-tab');
+          if (table.id === activeTableId) tab.classList.add('active');
+          tab.textContent = table.name;
+          tab.dataset.id = table.id;
+          // Click event: set active table and refresh entries
+          tab.addEventListener('click', () => {
+            activeTableId = table.id;
+            renderTableTabs();
+            refreshEntries();
+          });
+          // Double-click event: allow renaming the table
+          tab.addEventListener('dblclick', async () => {
+            const newName = prompt("Enter new table name:", table.name);
+            if (newName && newName.trim() !== "") {
+              table.name = newName.trim();
+              try {
+                await updateTableInDB(table);
+                refreshTables();
+              } catch (err) {
+                console.error("Error updating table name:", err);
+              }
+            }
+          });
+          tableTabsDiv.appendChild(tab);
+        });
+      }
+
+      ////////////////////////////////////////////////////////////////////////////
+      // 6) Render the entries table (filter by active table and search)
       ////////////////////////////////////////////////////////////////////////////
       function renderEntries() {
         entriesTableBody.innerHTML = '';
         const filterText = searchCodeInput.value.trim().toLowerCase();
-        let rowsToShow = filterText 
-          ? entries.filter(entry => entry.assetCode.toLowerCase().includes(filterText))
-          : entries;
-        rowsToShow = rowsToShow.slice(0, 50);
+        // Only show entries for the active table
+        let filteredEntries = entries.filter(entry => entry.tableId === activeTableId);
+        if (filterText) {
+          filteredEntries = filteredEntries.filter(entry => entry.assetCode.toLowerCase().includes(filterText));
+        }
+        const rowsToShow = filteredEntries.slice(0, 50);
         rowsToShow.forEach(entry => {
           const row = document.createElement('tr');
 
@@ -412,7 +542,7 @@
       }
 
       ////////////////////////////////////////////////////////////////////////////
-      // 6) Add new entry form
+      // 7) Add new entry form (include activeTableId)
       ////////////////////////////////////////////////////////////////////////////
       entryForm.addEventListener('submit', e => {
         e.preventDefault();
@@ -444,7 +574,8 @@
             deviation: deviation,
             remedial: remd,
             criticality: criticality,
-            timestamp: Date.now()
+            timestamp: Date.now(),
+            tableId: activeTableId
           };
           addEntryToDB(newEntry)
             .then(() => {
@@ -457,7 +588,7 @@
       });
 
       ////////////////////////////////////////////////////////////////////////////
-      // 7) Debounced search for datalist and table filter
+      // 8) Debounced search for datalist and table filter
       ////////////////////////////////////////////////////////////////////////////
       const handleSearch = debounce(() => {
         updateCodeSuggestions();
@@ -466,7 +597,25 @@
       searchCodeInput.addEventListener('input', handleSearch);
 
       ////////////////////////////////////////////////////////////////////////////
-      // 8) Generate PDF using jsPDF in landscape ensuring complete rows on pages
+      // 9) Add new table button event
+      ////////////////////////////////////////////////////////////////////////////
+      addTableBtn.addEventListener('click', async () => {
+        const tableName = prompt("Enter new table name:");
+        if (tableName && tableName.trim() !== "") {
+          try {
+            const newTable = { name: tableName.trim() };
+            await addTableToDB(newTable);
+            // Set the new table as active after creation
+            activeTableId = newTable.id;
+            refreshTables();
+          } catch (err) {
+            console.error("Error adding new table:", err);
+          }
+        }
+      });
+
+      ////////////////////////////////////////////////////////////////////////////
+      // 10) Generate PDF using jsPDF (only for active table)
       ////////////////////////////////////////////////////////////////////////////
       generatePdfButton.addEventListener('click', () => {
         const { jsPDF } = window.jspdf;
@@ -513,10 +662,10 @@
         currentY += 10;
         drawTableHeader();
 
-        const pdfEntries = entries.filter(entry => {
-          const filterText = searchCodeInput.value.trim().toLowerCase();
-          return filterText ? entry.assetCode.toLowerCase().includes(filterText) : true;
-        });
+        const filterText = searchCodeInput.value.trim().toLowerCase();
+        const pdfEntries = entries.filter(entry => 
+          entry.tableId === activeTableId && (filterText ? entry.assetCode.toLowerCase().includes(filterText) : true)
+        );
 
         pdfEntries.forEach(entry => {
           if (currentY + rowHeight > pageHeight - margin) {
@@ -570,10 +719,10 @@
       });
 
       ////////////////////////////////////////////////////////////////////////////
-      // 11) On load: Open DB and load entries
+      // 11) On load: Open DB and load tables and entries
       ////////////////////////////////////////////////////////////////////////////
       openDatabase()
-        .then(() => refreshEntries())
+        .then(() => refreshTables())
         .catch(err => console.error("Failed to open database:", err));
     });
   </script>
