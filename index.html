@@ -341,7 +341,7 @@
         let rowsToShow = filterText 
           ? entries.filter(entry => entry.assetCode.toLowerCase().includes(filterText))
           : entries;
-        //rowsToShow = rowsToShow.slice(0, 50);
+        rowsToShow = rowsToShow.slice(0, 50); // Limits to 50 rows
         rowsToShow.forEach(entry => {
           const row = document.createElement('tr');
 
@@ -465,8 +465,8 @@
           };
           addEntryToDB(newEntry)
             .then(() => {
-              refreshEntries();
-              entryForm.reset();
+              // Refresh the whole page after adding the entry
+              location.reload();
             })
             .catch(err => console.error("Error adding entry:", err));
         };
