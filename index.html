@@ -341,7 +341,7 @@
         let rowsToShow = filterText 
           ? entries.filter(entry => entry.assetCode.toLowerCase().includes(filterText))
           : entries;
-        rowsToShow = rowsToShow.slice(0, 50);
+        //rowsToShow = rowsToShow.slice(0, 50);
         rowsToShow.forEach(entry => {
           const row = document.createElement('tr');
 
