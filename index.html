@@ -131,15 +131,13 @@
   <div style="text-align:center; margin-bottom: 15px;">
     <label for="instanceSelect">Select or Create an Instance:</label>
     <select id="instanceSelect">
-      <!-- Built-in sample instances -->
-      <option value="Default">Default</option>
-      <option value="ProjectA">ProjectA</option>
-      <option value="ProjectB">ProjectB</option>
-      <!-- Others can be added manually or typed below -->
+      <!-- No default options; user must add an instance -->
     </select>
     <!-- Input for a custom instance name -->
     <input type="text" id="newInstanceInput" placeholder="New Instance Name" style="width:auto; display:inline-block;" />
     <button id="addInstanceBtn">Add Instance</button>
+    <!-- New button to delete the currently selected instance -->
+    <button id="deleteInstanceBtn" style="background-color: #d9534f;">Delete Instance</button>
   </div>
   
   <!-- Asset Code input with datalist -->
@@ -199,18 +197,15 @@
     ////////////////////////////////////////////////////////////////////////////
     // GLOBALS
     ////////////////////////////////////////////////////////////////////////////
-    let db;                 // The IndexedDB handle
-    let entries = [];       // In-memory array for the current instance's entries
-    let currentInstance = 'Default'; // default instance name at startup
+    let db; // The IndexedDB handle
+    let entries = []; // In-memory array for the current instance's entries
+    let currentInstance = ""; // No default instance; must be chosen or created
 
-    // Database name & version stay the same, but we'll have 1 object store *per instance*.
+    // Database name & version
     const DB_NAME = 'DeviationsDB_Multi';
     const DB_VERSION = 1;
 
-    // We'll keep track of which object stores exist, so we can create them on-the-fly if needed.
-    const knownStoresKey = '__knownStores';  // name of the "meta" store or data
-
-    // For asset code suggestions
+    // For asset code suggestions (if you have assetCodes.txt)
     let allCodes = [];
 
     ////////////////////////////////////////////////////////////////////////////
@@ -219,6 +214,7 @@
     const instanceSelect      = document.getElementById('instanceSelect');
     const newInstanceInput    = document.getElementById('newInstanceInput');
     const addInstanceBtn      = document.getElementById('addInstanceBtn');
+    const deleteInstanceBtn   = document.getElementById('deleteInstanceBtn');
 
     const searchCodeInput     = document.getElementById('searchCodeInput');
     const codeSuggestions     = document.getElementById('codeSuggestions');
@@ -244,10 +240,7 @@
         };
         request.onupgradeneeded = event => {
           db = event.target.result;
-          // Possibly create a store to keep track of known stores
-          if (!db.objectStoreNames.contains(knownStoresKey)) {
-            db.createObjectStore(knownStoresKey, { keyPath: 'name' });
-          }
+          // We won't create any store here by default; user must add an instance
         };
         request.onsuccess = event => {
           db = event.target.result;
@@ -257,39 +250,66 @@
     }
 
     ////////////////////////////////////////////////////////////////////////////
-    // 2) Ensure the object store for the CURRENT instance
+    // 2) CREATE a store for the CURRENT instance if it doesn't exist
     ////////////////////////////////////////////////////////////////////////////
     function ensureStoreExists(storeName) {
       return new Promise((resolve, reject) => {
-        // If storeName doesn't exist, we need to close the DB, reopen with onupgradeneeded
+        if (!storeName) {
+          // If user hasn't picked or created an instance, do nothing
+          return resolve();
+        }
         if (db.objectStoreNames.contains(storeName)) {
           // Already exists
-          resolve();
-        } else {
-          db.close();
-          const req = indexedDB.open(DB_NAME, db.version + 1);
-          req.onupgradeneeded = event => {
-            const upgradeDB = event.target.result;
-            if (!upgradeDB.objectStoreNames.contains(storeName)) {
-              upgradeDB.createObjectStore(storeName, { keyPath: 'id', autoIncrement: true });
-            }
-          };
-          req.onsuccess = event => {
-            db = event.target.result;
-            resolve();
-          };
-          req.onerror = event => {
-            reject(event.target.error);
-          };
+          return resolve();
         }
+        // If store doesn't exist, we must close DB, open with new version
+        db.close();
+        const req = indexedDB.open(DB_NAME, db.version + 1);
+        req.onupgradeneeded = event => {
+          const upgradeDB = event.target.result;
+          if (!upgradeDB.objectStoreNames.contains(storeName)) {
+            upgradeDB.createObjectStore(storeName, { keyPath: 'id', autoIncrement: true });
+          }
+        };
+        req.onsuccess = event => {
+          db = event.target.result;
+          resolve();
+        };
+        req.onerror = event => reject(event.target.error);
       });
     }
 
     ////////////////////////////////////////////////////////////////////////////
-    // 3) Store-level operations (CRUD)
+    // 3) DELETE the entire store for a given instance
+    ////////////////////////////////////////////////////////////////////////////
+    function deleteInstanceStore(storeName) {
+      return new Promise((resolve, reject) => {
+        if (!db.objectStoreNames.contains(storeName)) {
+          // If it doesn't exist, nothing to delete
+          return resolve();
+        }
+        db.close();
+        const req = indexedDB.open(DB_NAME, db.version + 1);
+        req.onupgradeneeded = event => {
+          const upgradeDB = event.target.result;
+          if (upgradeDB.objectStoreNames.contains(storeName)) {
+            upgradeDB.deleteObjectStore(storeName);
+          }
+        };
+        req.onsuccess = event => {
+          db = event.target.result;
+          resolve();
+        };
+        req.onerror = event => reject(event.target.error);
+      });
+    }
+
+    ////////////////////////////////////////////////////////////////////////////
+    // 4) Store-level CRUD (getAll, add, update, delete, clear)
     ////////////////////////////////////////////////////////////////////////////
     function getAllEntries(storeName) {
       return new Promise((resolve, reject) => {
+        if (!storeName) return resolve([]); // No instance => no data
         const transaction = db.transaction([storeName], 'readonly');
         const store = transaction.objectStore(storeName);
         const request = store.getAll();
@@ -300,6 +320,7 @@
 
     function addEntry(storeName, entry) {
       return new Promise((resolve, reject) => {
+        if (!storeName) return reject("No instance selected");
         const transaction = db.transaction([storeName], 'readwrite');
         const store = transaction.objectStore(storeName);
         const request = store.add(entry);
@@ -313,6 +334,7 @@
 
     function updateEntry(storeName, entry) {
       return new Promise((resolve, reject) => {
+        if (!storeName) return reject("No instance selected");
         const transaction = db.transaction([storeName], 'readwrite');
         const store = transaction.objectStore(storeName);
         const request = store.put(entry);
@@ -323,6 +345,7 @@
 
     function removeEntry(storeName, id) {
       return new Promise((resolve, reject) => {
+        if (!storeName) return reject("No instance selected");
         const transaction = db.transaction([storeName], 'readwrite');
         const store = transaction.objectStore(storeName);
         const request = store.delete(id);
@@ -333,6 +356,7 @@
 
     function clearAllEntries(storeName) {
       return new Promise((resolve, reject) => {
+        if (!storeName) return reject("No instance selected");
         const transaction = db.transaction([storeName], 'readwrite');
         const store = transaction.objectStore(storeName);
         const request = store.clear();
@@ -342,10 +366,19 @@
     }
 
     ////////////////////////////////////////////////////////////////////////////
-    // 4) Refresh the in-memory array from current instance store and re-render
+    // 5) REFRESH the in-memory array from the current instance store, then render
     ////////////////////////////////////////////////////////////////////////////
     async function refreshEntries() {
       try {
+        if (!currentInstance) {
+          // If no instance is selected, just clear the table
+          entries = [];
+          renderEntries();
+          return;
+        }
+        // Ensure the store for current instance
+        await ensureStoreExists(currentInstance);
+        // Load entries
         entries = await getAllEntries(currentInstance);
         renderEntries();
       } catch (err) {
@@ -354,10 +387,14 @@
     }
 
     ////////////////////////////////////////////////////////////////////////////
-    // 5) RENDER table
+    // 6) RENDER the table
     ////////////////////////////////////////////////////////////////////////////
     function renderEntries() {
       entriesTableBody.innerHTML = '';
+      if (!currentInstance) {
+        // No instance chosen => no data
+        return;
+      }
       const filterText = searchCodeInput.value.trim().toLowerCase();
       let rowsToShow = filterText
         ? entries.filter(e => e.assetCode.toLowerCase().includes(filterText))
@@ -377,7 +414,8 @@
         assetArea.style.width = '100%';
         assetArea.oninput = () => {
           entry.assetCode = assetArea.value;
-          updateEntry(currentInstance, entry).catch(err => console.error("Error updating entry:", err));
+          updateEntry(currentInstance, entry)
+            .catch(err => console.error("Error updating entry:", err));
         };
         assetTd.appendChild(assetArea);
         row.appendChild(assetTd);
@@ -399,12 +437,13 @@
         devArea.style.width = '100%';
         devArea.oninput = () => {
           entry.deviation = devArea.value;
-          updateEntry(currentInstance, entry).catch(err => console.error("Error updating entry:", err));
+          updateEntry(currentInstance, entry)
+            .catch(err => console.error("Error updating entry:", err));
         };
         deviationTd.appendChild(devArea);
         row.appendChild(deviationTd);
 
-        // Remedial
+        // Remedial Action
         const remedTd = document.createElement('td');
         remedTd.setAttribute('data-label', 'Remedial Action');
         const remedArea = document.createElement('textarea');
@@ -413,7 +452,8 @@
         remedArea.style.width = '100%';
         remedArea.oninput = () => {
           entry.remedial = remedArea.value;
-          updateEntry(currentInstance, entry).catch(err => console.error("Error updating entry:", err));
+          updateEntry(currentInstance, entry)
+            .catch(err => console.error("Error updating entry:", err));
         };
         remedTd.appendChild(remedArea);
         row.appendChild(remedTd);
@@ -427,7 +467,8 @@
         critArea.style.width = '100%';
         critArea.oninput = () => {
           entry.criticality = critArea.value;
-          updateEntry(currentInstance, entry).catch(err => console.error("Error updating entry:", err));
+          updateEntry(currentInstance, entry)
+            .catch(err => console.error("Error updating entry:", err));
         };
         critTd.appendChild(critArea);
         row.appendChild(critTd);
@@ -452,7 +493,7 @@
     }
 
     ////////////////////////////////////////////////////////////////////////////
-    // 6) UTILITY: Debounce function
+    // 7) DEBOUNCE for filtering & code suggestions
     ////////////////////////////////////////////////////////////////////////////
     function debounce(fn, delay) {
       let timeout;
@@ -463,9 +504,8 @@
     }
 
     ////////////////////////////////////////////////////////////////////////////
-    // 7) Asset Codes from assetCodes.txt (optional)
+    // 8) (Optional) Load Asset Codes from assetCodes.txt
     ////////////////////////////////////////////////////////////////////////////
-    // If you don't have or need this, you can remove it or adapt to your usage
     fetch('assetCodes.txt')
       .then(res => {
         if (!res.ok) throw new Error('Could not load assetCodes.txt');
@@ -490,7 +530,6 @@
       });
     }
 
-    // Filter & re-render upon searching
     const handleSearch = debounce(() => {
       updateCodeSuggestions();
       renderEntries();
@@ -498,10 +537,15 @@
     searchCodeInput.addEventListener('input', handleSearch);
 
     ////////////////////////////////////////////////////////////////////////////
-    // 8) ADD NEW ENTRY (via form)
+    // 9) ADD NEW ENTRY
     ////////////////////////////////////////////////////////////////////////////
     entryForm.addEventListener('submit', e => {
       e.preventDefault();
+      // Make sure an instance is selected
+      if (!currentInstance) {
+        alert("Please create or select an instance first.");
+        return;
+      }
       const code       = searchCodeInput.value.trim();
       const file       = imageInput.files[0];
       const deviation  = deviationInput.value.trim();
@@ -548,9 +592,13 @@
     });
 
     ////////////////////////////////////////////////////////////////////////////
-    // 9) CLEAR ALL from the current instance
+    // 10) CLEAR ALL from the current instance
     ////////////////////////////////////////////////////////////////////////////
     clearAllButton.addEventListener('click', async () => {
+      if (!currentInstance) {
+        alert("No instance selected.");
+        return;
+      }
       if (!entries.length) {
         alert("No entries to clear in this instance.");
         return;
@@ -566,9 +614,13 @@
     });
 
     ////////////////////////////////////////////////////////////////////////////
-    // 10) GENERATE PDF with the current instance's data
+    // 11) GENERATE PDF for the current instance
     ////////////////////////////////////////////////////////////////////////////
     generatePdfButton.addEventListener('click', () => {
+      if (!currentInstance) {
+        alert("No instance selected.");
+        return;
+      }
       const { jsPDF } = window.jspdf;
       const orientation = pdfOrientationSelect.value; // 'l' or 'p'
       const doc = new jsPDF(orientation, 'pt', 'letter');
@@ -587,7 +639,7 @@
         ? entries.filter(e => e.assetCode.toLowerCase().includes(filterText))
         : entries;
 
-      // Simple layout approach: one record per "block"
+      // Simple layout approach: one record per block
       pdfEntries.forEach((entry, idx) => {
         if (currentY > pageHeight - margin - 120) {
           doc.addPage();
@@ -628,14 +680,11 @@
     });
 
     ////////////////////////////////////////////////////////////////////////////
-    // 11) MULTIPLE INSTANCES: Changing the current instance
+    // 12) CHANGE the current instance
     ////////////////////////////////////////////////////////////////////////////
     instanceSelect.addEventListener('change', () => {
       currentInstance = instanceSelect.value;
-      // Ensure store exists, then load data
-      ensureStoreExists(currentInstance)
-        .then(() => refreshEntries())
-        .catch(err => console.error("Error ensuring store:", err));
+      refreshEntries();
     });
 
     // Add a new instance from user input
@@ -650,23 +699,52 @@
       opt.value = name;
       opt.textContent = name;
       instanceSelect.appendChild(opt);
+      // Select the new instance
       instanceSelect.value = name;
       currentInstance = name;
       newInstanceInput.value = '';
-      // Create new store if needed
-      ensureStoreExists(currentInstance)
-        .then(() => refreshEntries())
-        .catch(err => console.error("Error ensuring store:", err));
+      refreshEntries();
+    });
+
+    // Delete the currently selected instance
+    deleteInstanceBtn.addEventListener('click', async () => {
+      const storeName = instanceSelect.value;
+      if (!storeName) {
+        alert("No instance is selected.");
+        return;
+      }
+      if (!confirm(`Are you sure you want to delete instance "${storeName}"? All data will be lost.`)) {
+        return;
+      }
+      try {
+        await deleteInstanceStore(storeName);
+        // Remove from select
+        const optionToRemove = [...instanceSelect.options].find(opt => opt.value === storeName);
+        if (optionToRemove) {
+          instanceSelect.removeChild(optionToRemove);
+        }
+        // Clear if we just deleted the currently selected instance
+        if (currentInstance === storeName) {
+          currentInstance = "";
+        }
+        await refreshEntries();
+        alert(`Instance "${storeName}" has been deleted.`);
+      } catch (err) {
+        console.error("Error deleting instance store:", err);
+        alert("Could not delete instance. Check console for details.");
+      }
     });
 
     ////////////////////////////////////////////////////////////////////////////
-    // 12) On page load, open DB and ensure default store, then load entries
+    // 13) On page load, open DB, but no default store. Wait for user to add instance
     ////////////////////////////////////////////////////////////////////////////
     window.addEventListener('DOMContentLoaded', () => {
       openDatabase()
-        .then(() => ensureStoreExists(currentInstance))
-        .then(() => refreshEntries())
-        .catch(err => console.error("Failed to open DB or ensure store:", err));
+        .then(() => {
+          // No default instance. The user must pick or create one.
+          refreshEntries();
+        })
+        .catch(err => console.error("Failed to open DB:", err));
     });
   </script>
 </body>
