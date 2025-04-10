@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Asset Deviation Tracker (Multiple Instances, No Defaults)</title>
+  <title>Asset Deviation Tracker with Topics</title>
   <!-- Make pages scale nicely on phones -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <!-- jsPDF from CDN for PDF generation -->
@@ -26,7 +26,7 @@
       margin-top: 10px;
       margin-bottom: 10px;
     }
-    form, .buttons {
+    form, .buttons, .topics-area {
       margin: 20px 0;
       text-align: center;
     }
@@ -125,28 +125,30 @@
   </style>
 </head>
 <body>
-  <h1>Asset Deviation Tracker</h1>
+  <h1>Asset Deviation Tracker (Multi-Topic)</h1>
 
-  <!-- 1) INSTANCE SELECTION -->
-  <div style="text-align:center; margin-bottom: 15px;">
-    <label for="instanceSelect">Select or Create an Instance:</label>
-    <select id="instanceSelect">
-      <!-- Initially empty; we'll load from the meta store -->
+  <!-- TOPIC SELECTION & FILTERING -->
+  <div class="topics-filter">
+    <label for="topicFilterSelect">Filter By Topic:</label>
+    <select id="topicFilterSelect">
+      <option value="">All Topics</option>
+      <!-- Will populate from IndexedDB -->
     </select>
-    <!-- Input for a custom instance name -->
-    <input type="text" id="newInstanceInput" placeholder="New Instance Name" style="width:auto; display:inline-block;" />
-    <button id="addInstanceBtn">Add Instance</button>
-    <!-- Button to delete the currently selected instance -->
-    <button id="deleteInstanceBtn" style="background-color: #d9534f;">Delete Instance</button>
   </div>
-  
-  <!-- Asset Code input with datalist -->
+
+  <!-- ASSET CODE input with datalist -->
   <label for="searchCodeInput">Asset Code (Search or type custom):</label>
   <input type="text" id="searchCodeInput" placeholder="e.g. 131-CON-01..." list="codeSuggestions" />
   <datalist id="codeSuggestions"></datalist>
 
   <!-- The Add Entry form -->
   <form id="entryForm">
+    <label for="topicSelect">Select Topic:</label>
+    <select id="topicSelect" required>
+      <option value="">(Select a Topic)</option>
+      <!-- Will be populated from DB -->
+    </select>
+    
     <label for="imageInput">Photo:</label>
     <input type="file" id="imageInput" accept="image/*;capture=camera" required>
     
@@ -166,15 +168,15 @@
     <button type="submit">Add Entry</button>
   </form>
 
+  <!-- PDF Orientation Selector and other buttons -->
   <div class="buttons">
-    <!-- PDF Orientation Selector -->
     <label for="pdfOrientation">PDF Orientation:</label>
     <select id="pdfOrientation">
       <option value="l">Landscape</option>
       <option value="p">Portrait</option>
     </select>
     <button id="generatePdf">Generate PDF</button>
-    <button id="exportCsv">Export CSV</button>
+    <button id="exportCsv">Export CSV (Coming Soon)</button>
     <button id="clearAll">Clear All Entries</button>
   </div>
 
@@ -193,624 +195,635 @@
     <tbody></tbody>
   </table>
 
+  <!-- TOPICS MANAGEMENT -->
+  <h2>Manage Topics</h2>
+  <div class="topics-area">
+    <form id="addTopicForm">
+      <label for="newTopicName">Topic Name:</label>
+      <input type="text" id="newTopicName" placeholder="Enter a Topic Name" required>
+      <button type="submit">Add Topic</button>
+    </form>
+    <table id="topicsTable">
+      <thead>
+        <tr>
+          <th>Topic Name</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody><!-- Will be populated dynamically --></tbody>
+    </table>
+  </div>
+
   <script>
-    ////////////////////////////////////////////////////////////////////////////
-    // GLOBALS
-    ////////////////////////////////////////////////////////////////////////////
-    let db;                    // The IndexedDB handle
-    let entries = [];          // In-memory array for the current instance's entries
-    let currentInstance = "";  // No default instance
+    document.addEventListener("DOMContentLoaded", () => {
+      ////////////////////////////////////////////////////////////////////////////
+      // Constants and DB Setup
+      ////////////////////////////////////////////////////////////////////////////
+      const DB_NAME = 'DeviationsDB_MultiTopic';
+      const DB_VERSION = 2; // incremented version for new store
+      const ENTRIES_STORE = 'entries';
+      const TOPICS_STORE = 'topics';
+      let db;
 
-    // Database name & version
-    // IMPORTANT: If you previously used version=1, bump this so onupgradeneeded is triggered.
-    const DB_NAME = 'DeviationsDB_Multi';
-    const DB_VERSION = 2;
+      // We keep in-memory arrays for fast rendering:
+      let entries = [];
+      let topics = [];
 
-    // We'll store the instance names in a "meta" store named "__knownStores"
-    const META_STORE = '__knownStores';
+      // Open DB with both 'entries' store & 'topics' store
+      function openDatabase() {
+        return new Promise((resolve, reject) => {
+          const request = indexedDB.open(DB_NAME, DB_VERSION);
+          request.onerror = event => {
+            console.error("Database error:", event.target.error);
+            reject(event.target.error);
+          };
+          request.onupgradeneeded = event => {
+            db = event.target.result;
+            // Create entries store if not exists
+            if (!db.objectStoreNames.contains(ENTRIES_STORE)) {
+              db.createObjectStore(ENTRIES_STORE, { keyPath: 'id', autoIncrement: true });
+            }
+            // Create topics store if not exists
+            if (!db.objectStoreNames.contains(TOPICS_STORE)) {
+              db.createObjectStore(TOPICS_STORE, { keyPath: 'id', autoIncrement: true });
+            }
+          };
+          request.onsuccess = event => {
+            db = event.target.result;
+            resolve(db);
+          };
+        });
+      }
 
-    // For asset code suggestions (optional if you have an assetCodes.txt)
-    let allCodes = [];
+      ////////////////////////////////////////////////////////////////////////////
+      // IndexedDB CRUD for ENTRIES
+      ////////////////////////////////////////////////////////////////////////////
+      function getAllEntriesFromDB() {
+        return new Promise((resolve, reject) => {
+          const transaction = db.transaction([ENTRIES_STORE], 'readonly');
+          const store = transaction.objectStore(ENTRIES_STORE);
+          const request = store.getAll();
+          request.onsuccess = event => resolve(event.target.result);
+          request.onerror = event => reject(event.target.error);
+        });
+      }
 
-    ////////////////////////////////////////////////////////////////////////////
-    // DOM Elements
-    ////////////////////////////////////////////////////////////////////////////
-    const instanceSelect      = document.getElementById('instanceSelect');
-    const newInstanceInput    = document.getElementById('newInstanceInput');
-    const addInstanceBtn      = document.getElementById('addInstanceBtn');
-    const deleteInstanceBtn   = document.getElementById('deleteInstanceBtn');
+      function addEntryToDB(entry) {
+        return new Promise((resolve, reject) => {
+          const transaction = db.transaction([ENTRIES_STORE], 'readwrite');
+          const store = transaction.objectStore(ENTRIES_STORE);
+          const request = store.add(entry);
+          request.onsuccess = event => {
+            entry.id = event.target.result;
+            resolve(entry);
+          };
+          request.onerror = event => reject(event.target.error);
+        });
+      }
 
-    const searchCodeInput     = document.getElementById('searchCodeInput');
-    const codeSuggestions     = document.getElementById('codeSuggestions');
-    const entryForm           = document.getElementById('entryForm');
-    const imageInput          = document.getElementById('imageInput');
-    const deviationInput      = document.getElementById('deviationInput');
-    const criticalityInput    = document.getElementById('criticalityInput');
-    const remedialInput       = document.getElementById('remedialInput');
-    const entriesTableBody    = document.querySelector('#entriesTable tbody');
-    const generatePdfButton   = document.getElementById('generatePdf');
-    const clearAllButton      = document.getElementById('clearAll');
-    const pdfOrientationSelect= document.getElementById('pdfOrientation');
+      function updateEntryInDB(entry) {
+        return new Promise((resolve, reject) => {
+          const transaction = db.transaction([ENTRIES_STORE], 'readwrite');
+          const store = transaction.objectStore(ENTRIES_STORE);
+          const request = store.put(entry);
+          request.onsuccess = () => resolve();
+          request.onerror = event => reject(event.target.error);
+        });
+      }
 
-    ////////////////////////////////////////////////////////////////////////////
-    // 1) OPEN or UPGRADE THE DATABASE (async)
-    ////////////////////////////////////////////////////////////////////////////
-    async function openDatabase() {
-      return new Promise((resolve, reject) => {
-        const request = indexedDB.open(DB_NAME, DB_VERSION);
-        request.onerror = event => {
-          console.error("Database error:", event.target.error);
-          reject(event.target.error);
-        };
-        request.onupgradeneeded = event => {
-          db = event.target.result;
-          // Create meta store if needed
-          if (!db.objectStoreNames.contains(META_STORE)) {
-            db.createObjectStore(META_STORE, { keyPath: 'name' });
+      function removeEntryFromDB(id) {
+        return new Promise((resolve, reject) => {
+          const transaction = db.transaction([ENTRIES_STORE], 'readwrite');
+          const store = transaction.objectStore(ENTRIES_STORE);
+          const request = store.delete(id);
+          request.onsuccess = () => resolve();
+          request.onerror = event => reject(event.target.error);
+        });
+      }
+
+      function clearAllEntriesFromDB() {
+        return new Promise((resolve, reject) => {
+          const transaction = db.transaction([ENTRIES_STORE], 'readwrite');
+          const store = transaction.objectStore(ENTRIES_STORE);
+          const request = store.clear();
+          request.onsuccess = () => resolve();
+          request.onerror = event => reject(event.target.error);
+        });
+      }
+
+      ////////////////////////////////////////////////////////////////////////////
+      // IndexedDB CRUD for TOPICS
+      ////////////////////////////////////////////////////////////////////////////
+      function getAllTopicsFromDB() {
+        return new Promise((resolve, reject) => {
+          const transaction = db.transaction([TOPICS_STORE], 'readonly');
+          const store = transaction.objectStore(TOPICS_STORE);
+          const request = store.getAll();
+          request.onsuccess = event => resolve(event.target.result);
+          request.onerror = event => reject(event.target.error);
+        });
+      }
+
+      function addTopicToDB(topicName) {
+        return new Promise((resolve, reject) => {
+          const transaction = db.transaction([TOPICS_STORE], 'readwrite');
+          const store = transaction.objectStore(TOPICS_STORE);
+          const data = { name: topicName };
+          const request = store.add(data);
+          request.onsuccess = event => {
+            data.id = event.target.result;
+            resolve(data);
+          };
+          request.onerror = event => reject(event.target.error);
+        });
+      }
+
+      async function removeTopicFromDB(topicId) {
+        // 1) Remove the topic record itself
+        // 2) Optionally remove all entries associated with that topic
+        try {
+          // remove the topic
+          await new Promise((resolve, reject) => {
+            const transaction = db.transaction([TOPICS_STORE], 'readwrite');
+            const store = transaction.objectStore(TOPICS_STORE);
+            const req = store.delete(topicId);
+            req.onsuccess = () => resolve();
+            req.onerror = ev => reject(ev.target.error);
+          });
+          // remove all entries that had this topic
+          const toRemove = entries.filter(e => e.topicId === topicId);
+          for (const entry of toRemove) {
+            await removeEntryFromDB(entry.id);
           }
-        };
-        request.onsuccess = event => {
-          db = event.target.result;
-          resolve(db);
-        };
-      });
-    }
-
-    ////////////////////////////////////////////////////////////////////////////
-    // 2) CREATE a store for the CURRENT instance if it doesn't exist
-    ////////////////////////////////////////////////////////////////////////////
-    function ensureStoreExists(storeName) {
-      return new Promise((resolve, reject) => {
-        if (!storeName) return resolve();  // no instance => do nothing
-        if (db.objectStoreNames.contains(storeName)) {
-          // Already exists
-          return resolve();
+        } catch (err) {
+          console.error("Error removing topic & associated entries:", err);
         }
-        // If store doesn't exist, we must close DB and open with new version
-        db.close();
-        const req = indexedDB.open(DB_NAME, db.version + 1);
-        req.onupgradeneeded = event => {
-          const upgradeDB = event.target.result;
-          // Make sure meta store also exists
-          if (!upgradeDB.objectStoreNames.contains(META_STORE)) {
-            upgradeDB.createObjectStore(META_STORE, { keyPath: 'name' });
-          }
-          if (!upgradeDB.objectStoreNames.contains(storeName)) {
-            upgradeDB.createObjectStore(storeName, { keyPath: 'id', autoIncrement: true });
-          }
-        };
-        req.onsuccess = event => {
-          db = event.target.result; // reassign global db
-          resolve();
-        };
-        req.onerror = event => reject(event.target.error);
-      });
-    }
+      }
 
-    ////////////////////////////////////////////////////////////////////////////
-    // 3) DELETE the entire store for a given instance
-    ////////////////////////////////////////////////////////////////////////////
-    function deleteInstanceStore(storeName) {
-      return new Promise((resolve, reject) => {
-        if (!db.objectStoreNames.contains(storeName)) {
-          // If it doesn't exist, nothing to delete
-          return resolve();
+      async function refreshTopics() {
+        topics = await getAllTopicsFromDB();
+        renderTopics();   // for table in "Manage Topics"
+        updateTopicsSelect(); // for the <select> in entry form & filter
+      }
+
+      ////////////////////////////////////////////////////////////////////////////
+      // 1) Load asset codes & store them in allCodes
+      ////////////////////////////////////////////////////////////////////////////
+      let allCodes = [];
+      fetch('assetCodes.txt')
+        .then(res => {
+          if (!res.ok) {
+            throw new Error('Could not load assetCodes.txt');
+          }
+          return res.text();
+        })
+        .then(data => {
+          allCodes = data.split('\n').map(line => line.trim()).filter(line => line !== '');
+        })
+        .catch(err => console.error(err));
+
+      ////////////////////////////////////////////////////////////////////////////
+      // 2) DOM elements
+      ////////////////////////////////////////////////////////////////////////////
+      const searchCodeInput       = document.getElementById('searchCodeInput');
+      const codeSuggestions       = document.getElementById('codeSuggestions');
+      const entryForm             = document.getElementById('entryForm');
+      const imageInput            = document.getElementById('imageInput');
+      const deviationInput        = document.getElementById('deviationInput');
+      const criticalityInput      = document.getElementById('criticalityInput');
+      const remedialInput         = document.getElementById('remedialInput');
+      const entriesTableBody      = document.querySelector('#entriesTable tbody');
+      const generatePdfButton     = document.getElementById('generatePdf');
+      // const exportCsvButton    = document.getElementById('exportCsv'); // future
+      const clearAllButton        = document.getElementById('clearAll');
+      const pdfOrientationSelect  = document.getElementById('pdfOrientation');
+      const topicSelect           = document.getElementById('topicSelect'); // in main form
+      const topicFilterSelect     = document.getElementById('topicFilterSelect'); // top filter
+      // Topics management
+      const addTopicForm          = document.getElementById('addTopicForm');
+      const newTopicNameInput     = document.getElementById('newTopicName');
+      const topicsTableBody       = document.querySelector('#topicsTable tbody');
+
+      ////////////////////////////////////////////////////////////////////////////
+      // 3) Debounce Helper (1 second delay)
+      ////////////////////////////////////////////////////////////////////////////
+      function debounce(fn, delay) {
+        let timeout;
+        return (...args) => {
+          clearTimeout(timeout);
+          timeout = setTimeout(() => fn(...args), delay);
+        };
+      }
+
+      ////////////////////////////////////////////////////////////////////////////
+      // 4) Update <datalist> (limit suggestions)
+      ////////////////////////////////////////////////////////////////////////////
+      function updateCodeSuggestions() {
+        codeSuggestions.innerHTML = '';
+        const typed = searchCodeInput.value.trim().toLowerCase();
+        let matched = typed ? allCodes.filter(code => code.toLowerCase().includes(typed)) : allCodes;
+        const MAX_SUGGESTIONS = 50;
+        matched.slice(0, MAX_SUGGESTIONS).forEach(code => {
+          const opt = document.createElement('option');
+          opt.value = code;
+          codeSuggestions.appendChild(opt);
+        });
+      }
+
+      ////////////////////////////////////////////////////////////////////////////
+      // 5) Render the table with filtering
+      ////////////////////////////////////////////////////////////////////////////
+      function renderEntries() {
+        entriesTableBody.innerHTML = '';
+        const filterText = searchCodeInput.value.trim().toLowerCase();
+        const selectedTopicId = parseInt(topicFilterSelect.value) || null; // or null if "All"
+
+        // 1) Filter by asset code text
+        let rowsToShow = filterText
+          ? entries.filter(e => e.assetCode.toLowerCase().includes(filterText))
+          : entries;
+
+        // 2) Filter by topic if a topic is selected
+        if (selectedTopicId) {
+          rowsToShow = rowsToShow.filter(e => e.topicId === selectedTopicId);
         }
-        db.close();
-        const req = indexedDB.open(DB_NAME, db.version + 1);
-        req.onupgradeneeded = event => {
-          const upgradeDB = event.target.result;
-          if (upgradeDB.objectStoreNames.contains(storeName)) {
-            upgradeDB.deleteObjectStore(storeName);
-          }
-        };
-        req.onsuccess = event => {
-          db = event.target.result;
-          resolve();
-        };
-        req.onerror = event => reject(event.target.error);
-      });
-    }
 
-    ////////////////////////////////////////////////////////////////////////////
-    // 4) Store-level CRUD (getAll, add, update, delete, clear)
-    ////////////////////////////////////////////////////////////////////////////
-    function getAllEntries(storeName) {
-      return new Promise((resolve, reject) => {
-        if (!storeName) return resolve([]); 
-        const tx = db.transaction([storeName], 'readonly');
-        const store = tx.objectStore(storeName);
-        const req = store.getAll();
-        req.onsuccess = e => resolve(e.target.result);
-        req.onerror = e => reject(e.target.error);
-      });
-    }
+        // 3) Limit to 50 rows
+        rowsToShow = rowsToShow.slice(0, 50);
 
-    function addEntry(storeName, entry) {
-      return new Promise((resolve, reject) => {
-        if (!storeName) return reject("No instance selected");
-        const tx = db.transaction([storeName], 'readwrite');
-        const store = tx.objectStore(storeName);
-        const req = store.add(entry);
-        req.onsuccess = e => {
-          entry.id = e.target.result;
-          resolve(entry);
-        };
-        req.onerror = e => reject(e.target.error);
-      });
-    }
+        rowsToShow.forEach(entry => {
+          const row = document.createElement('tr');
 
-    function updateEntry(storeName, entry) {
-      return new Promise((resolve, reject) => {
-        if (!storeName) return reject("No instance selected");
-        const tx = db.transaction([storeName], 'readwrite');
-        const store = tx.objectStore(storeName);
-        const req = store.put(entry);
-        req.onsuccess = () => resolve();
-        req.onerror = e => reject(e.target.error);
-      });
-    }
+          // Asset Code
+          const assetTd = document.createElement('td');
+          assetTd.setAttribute('data-label', 'Asset Code');
+          const assetArea = document.createElement('textarea');
+          assetArea.value = entry.assetCode;
+          assetArea.rows = 1;
+          assetArea.style.width = '100%';
+          assetArea.oninput = () => {
+            entry.assetCode = assetArea.value;
+            updateEntryInDB(entry).catch(err => console.error("Error updating entry:", err));
+          };
+          assetTd.appendChild(assetArea);
+          row.appendChild(assetTd);
 
-    function removeEntry(storeName, id) {
-      return new Promise((resolve, reject) => {
-        if (!storeName) return reject("No instance selected");
-        const tx = db.transaction([storeName], 'readwrite');
-        const store = tx.objectStore(storeName);
-        const req = store.delete(id);
-        req.onsuccess = () => resolve();
-        req.onerror = e => reject(e.target.error);
-      });
-    }
+          // Photo
+          const photoTd = document.createElement('td');
+          photoTd.setAttribute('data-label', 'Photo');
+          const img = document.createElement('img');
+          img.src = entry.image;
+          photoTd.appendChild(img);
+          row.appendChild(photoTd);
 
-    function clearAllEntries(storeName) {
-      return new Promise((resolve, reject) => {
-        if (!storeName) return reject("No instance selected");
-        const tx = db.transaction([storeName], 'readwrite');
-        const store = tx.objectStore(storeName);
-        const req = store.clear();
-        req.onsuccess = () => resolve();
-        req.onerror = e => reject(e.target.error);
-      });
-    }
+          // Deviation
+          const deviationTd = document.createElement('td');
+          deviationTd.setAttribute('data-label', 'Deviation');
+          const deviationArea = document.createElement('textarea');
+          deviationArea.value = entry.deviation;
+          deviationArea.rows = 2;
+          deviationArea.style.width = '100%';
+          deviationArea.oninput = () => {
+            entry.deviation = deviationArea.value;
+            updateEntryInDB(entry).catch(err => console.error("Error updating entry:", err));
+          };
+          deviationTd.appendChild(deviationArea);
+          row.appendChild(deviationTd);
 
-    ////////////////////////////////////////////////////////////////////////////
-    // 5) REFRESH the in-memory array from the current instance store, then render
-    ////////////////////////////////////////////////////////////////////////////
-    async function refreshEntries() {
-      try {
-        if (!currentInstance) {
-          entries = [];
+          // Remedial Action
+          const remTd = document.createElement('td');
+          remTd.setAttribute('data-label', 'Remedial Action');
+          const remArea = document.createElement('textarea');
+          remArea.value = entry.remedial;
+          remArea.rows = 2;
+          remArea.style.width = '100%';
+          remArea.oninput = () => {
+            entry.remedial = remArea.value;
+            updateEntryInDB(entry).catch(err => console.error("Error updating entry:", err));
+          };
+          remTd.appendChild(remArea);
+          row.appendChild(remTd);
+
+          // Criticality
+          const criticalityTd = document.createElement('td');
+          criticalityTd.setAttribute('data-label', 'Criticality');
+          const criticalityArea = document.createElement('textarea');
+          criticalityArea.value = entry.criticality;
+          criticalityArea.rows = 1;
+          criticalityArea.style.width = '100%';
+          criticalityArea.oninput = () => {
+            entry.criticality = criticalityArea.value;
+            updateEntryInDB(entry).catch(err => console.error("Error updating entry:", err));
+          };
+          criticalityTd.appendChild(criticalityArea);
+          row.appendChild(criticalityTd);
+
+          // Actions
+          const actionsTd = document.createElement('td');
+          actionsTd.setAttribute('data-label', 'Actions');
+          const deleteBtn = document.createElement('button');
+          deleteBtn.textContent = 'Delete';
+          deleteBtn.onclick = () => {
+            if (confirm("Are you sure you want to delete this entry?")) {
+              removeEntryFromDB(entry.id)
+                .then(() => refreshEntries())
+                .catch(err => console.error("Error deleting entry:", err));
+            }
+          };
+          actionsTd.appendChild(deleteBtn);
+          row.appendChild(actionsTd);
+
+          entriesTableBody.appendChild(row);
+        });
+      }
+
+      async function refreshEntries() {
+        try {
+          entries = await getAllEntriesFromDB();
           renderEntries();
+        } catch (err) {
+          console.error("Error refreshing entries:", err);
+        }
+      }
+
+      ////////////////////////////////////////////////////////////////////////////
+      // 6) Add new entry form
+      ////////////////////////////////////////////////////////////////////////////
+      entryForm.addEventListener('submit', e => {
+        e.preventDefault();
+        const code = searchCodeInput.value.trim();
+        const file = imageInput.files[0];
+        const deviation = deviationInput.value.trim();
+        const criticality = criticalityInput.value.trim();
+        const remedial = remedialInput.value.trim();
+        const topicId = parseInt(topicSelect.value); // Must exist
+
+        if (!topicId) {
+          alert('Please select a Topic.');
           return;
         }
-        await ensureStoreExists(currentInstance);
-        entries = await getAllEntries(currentInstance);
+        if (!code) {
+          alert('Please type or pick an Asset Code before adding an entry.');
+          return;
+        }
+        if (!file) {
+          alert('Please select a photo.');
+          return;
+        }
+        if (!deviation || !criticality || !remedial) {
+          alert('Please fill out all fields (Deviation, Criticality, and Remedial Action).');
+          return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = function(evt) {
+          const imageData = evt.target.result;
+          const newEntry = {
+            assetCode: code,
+            image: imageData,
+            deviation: deviation,
+            remedial: remedial,
+            criticality: criticality,
+            topicId: topicId, // link to the topic
+            timestamp: Date.now()
+          };
+          addEntryToDB(newEntry)
+            .then(() => {
+              // Refresh the table without reloading the entire page:
+              refreshEntries();
+              // Clear form fields
+              imageInput.value = '';
+              deviationInput.value = '';
+              criticalityInput.value = '';
+              remedialInput.value = '';
+            })
+            .catch(err => console.error("Error adding entry:", err));
+        };
+        reader.readAsDataURL(file);
+      });
+
+      ////////////////////////////////////////////////////////////////////////////
+      // 7) Debounced search for datalist and table filter
+      ////////////////////////////////////////////////////////////////////////////
+      const handleSearch = debounce(() => {
+        updateCodeSuggestions();
         renderEntries();
-      } catch (err) {
-        console.error("Error refreshing entries:", err);
-      }
-    }
+      }, 1000);
+      searchCodeInput.addEventListener('input', handleSearch);
 
-    ////////////////////////////////////////////////////////////////////////////
-    // 6) RENDER the table
-    ////////////////////////////////////////////////////////////////////////////
-    function renderEntries() {
-      entriesTableBody.innerHTML = '';
-      if (!currentInstance) {
-        return; // no instance => empty table
-      }
+      ////////////////////////////////////////////////////////////////////////////
+      // 8) Generate PDF using jsPDF in selected orientation ensuring complete rows on pages
+      ////////////////////////////////////////////////////////////////////////////
+      generatePdfButton.addEventListener('click', () => {
+        const { jsPDF } = window.jspdf;
+        const orientation = pdfOrientationSelect.value; // 'l' or 'p'
+        const doc = new jsPDF(orientation, 'pt', 'letter');
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+        const margin = 40;
+        const startX = margin;
+        let currentY = margin;
+        const availableWidth = pageWidth - 2 * margin;
+        const colAssetW = 60;
+        const colDeviationW = 120;
+        const colRemedialW = 120;
+        const colCriticalityW = 60;
+        const colPhotoW = availableWidth - (colAssetW + colDeviationW + colRemedialW + colCriticalityW);
+        const tableW = colAssetW + colPhotoW + colDeviationW + colRemedialW + colCriticalityW;
+        const rowHeight = 130;
+        const headerHeight = 30;
 
-      const filterText = searchCodeInput.value.trim().toLowerCase();
-      let rowsToShow = filterText
-        ? entries.filter(e => e.assetCode.toLowerCase().includes(filterText))
-        : entries;
-      // Limit to 50 for performance
-      rowsToShow = rowsToShow.slice(0, 50);
-
-      rowsToShow.forEach(entry => {
-        const tr = document.createElement('tr');
-
-        // Asset Code
-        const tdAsset = document.createElement('td');
-        tdAsset.setAttribute('data-label', 'Asset Code');
-        const assetArea = document.createElement('textarea');
-        assetArea.value = entry.assetCode;
-        assetArea.rows = 1;
-        assetArea.style.width = '100%';
-        assetArea.oninput = () => {
-          entry.assetCode = assetArea.value;
-          updateEntry(currentInstance, entry).catch(err => console.error("Error updating entry:", err));
-        };
-        tdAsset.appendChild(assetArea);
-        tr.appendChild(tdAsset);
-
-        // Photo
-        const tdPhoto = document.createElement('td');
-        tdPhoto.setAttribute('data-label', 'Photo');
-        const img = document.createElement('img');
-        img.src = entry.image;
-        tdPhoto.appendChild(img);
-        tr.appendChild(tdPhoto);
-
-        // Deviation
-        const tdDeviation = document.createElement('td');
-        tdDeviation.setAttribute('data-label', 'Deviation');
-        const devArea = document.createElement('textarea');
-        devArea.value = entry.deviation;
-        devArea.rows = 2;
-        devArea.style.width = '100%';
-        devArea.oninput = () => {
-          entry.deviation = devArea.value;
-          updateEntry(currentInstance, entry).catch(err => console.error("Error updating entry:", err));
-        };
-        tdDeviation.appendChild(devArea);
-        tr.appendChild(tdDeviation);
-
-        // Remedial
-        const tdRemedial = document.createElement('td');
-        tdRemedial.setAttribute('data-label', 'Remedial Action');
-        const remArea = document.createElement('textarea');
-        remArea.value = entry.remedial;
-        remArea.rows = 2;
-        remArea.style.width = '100%';
-        remArea.oninput = () => {
-          entry.remedial = remArea.value;
-          updateEntry(currentInstance, entry).catch(err => console.error("Error updating entry:", err));
-        };
-        tdRemedial.appendChild(remArea);
-        tr.appendChild(tdRemedial);
-
-        // Criticality
-        const tdCriticality = document.createElement('td');
-        tdCriticality.setAttribute('data-label', 'Criticality');
-        const critArea = document.createElement('textarea');
-        critArea.value = entry.criticality;
-        critArea.rows = 1;
-        critArea.style.width = '100%';
-        critArea.oninput = () => {
-          entry.criticality = critArea.value;
-          updateEntry(currentInstance, entry).catch(err => console.error("Error updating entry:", err));
-        };
-        tdCriticality.appendChild(critArea);
-        tr.appendChild(tdCriticality);
-
-        // Actions
-        const tdActions = document.createElement('td');
-        tdActions.setAttribute('data-label', 'Actions');
-        const deleteBtn = document.createElement('button');
-        deleteBtn.textContent = 'Delete';
-        deleteBtn.onclick = () => {
-          if (confirm("Are you sure you want to delete this entry?")) {
-            removeEntry(currentInstance, entry.id)
-              .then(() => refreshEntries())
-              .catch(err => console.error("Error deleting entry:", err));
-          }
-        };
-        tdActions.appendChild(deleteBtn);
-        tr.appendChild(tdActions);
-
-        entriesTableBody.appendChild(tr);
-      });
-    }
-
-    ////////////////////////////////////////////////////////////////////////////
-    // 7) DEBOUNCE for filtering & code suggestions
-    ////////////////////////////////////////////////////////////////////////////
-    function debounce(fn, delay) {
-      let timeout;
-      return (...args) => {
-        clearTimeout(timeout);
-        timeout = setTimeout(() => fn(...args), delay);
-      };
-    }
-
-    const handleSearch = debounce(() => {
-      updateCodeSuggestions();
-      renderEntries();
-    }, 800);
-    searchCodeInput.addEventListener('input', handleSearch);
-
-    ////////////////////////////////////////////////////////////////////////////
-    // 8) Optional: Load Asset Codes from assetCodes.txt
-    ////////////////////////////////////////////////////////////////////////////
-    fetch('assetCodes.txt')
-      .then(res => {
-        if (!res.ok) throw new Error('Could not load assetCodes.txt');
-        return res.text();
-      })
-      .then(data => {
-        allCodes = data.split('\n').map(line => line.trim()).filter(line => line !== '');
-      })
-      .catch(err => console.error(err));
-
-    function updateCodeSuggestions() {
-      codeSuggestions.innerHTML = '';
-      const typed = searchCodeInput.value.trim().toLowerCase();
-      let matched = typed
-        ? allCodes.filter(code => code.toLowerCase().includes(typed))
-        : allCodes;
-      const MAX_SUGGESTIONS = 50;
-      matched.slice(0, MAX_SUGGESTIONS).forEach(code => {
-        const opt = document.createElement('option');
-        opt.value = code;
-        codeSuggestions.appendChild(opt);
-      });
-    }
-
-    ////////////////////////////////////////////////////////////////////////////
-    // 9) ADD NEW ENTRY
-    ////////////////////////////////////////////////////////////////////////////
-    entryForm.addEventListener('submit', e => {
-      e.preventDefault();
-      if (!currentInstance) {
-        alert("Please create or select an instance first.");
-        return;
-      }
-      const code       = searchCodeInput.value.trim();
-      const file       = imageInput.files[0];
-      const deviation  = deviationInput.value.trim();
-      const criticality= criticalityInput.value.trim();
-      const remedial   = remedialInput.value.trim();
-
-      if (!code) {
-        alert('Please type or pick an Asset Code before adding an entry.');
-        return;
-      }
-      if (!file) {
-        alert('Please select a photo.');
-        return;
-      }
-      if (!deviation || !criticality || !remedial) {
-        alert('Fill out all fields (Deviation, Criticality, Remedial).');
-        return;
-      }
-
-      const reader = new FileReader();
-      reader.onload = async function(evt) {
-        const imageData = evt.target.result;
-        const newEntry = {
-          assetCode: code,
-          image: imageData,
-          deviation: deviation,
-          remedial: remedial,
-          criticality: criticality,
-          timestamp: Date.now()
-        };
-        try {
-          await addEntry(currentInstance, newEntry);
-          // Clear form
-          imageInput.value = '';
-          deviationInput.value = '';
-          criticalityInput.value = '';
-          remedialInput.value = '';
-          // Refresh
-          await refreshEntries();
-        } catch(err) {
-          console.error("Error adding entry:", err);
-          alert("Failed to add entry. Check console for details.");
+        // Table header
+        function drawTableHeader() {
+          drawRowBorder(currentY, headerHeight);
+          doc.setFontSize(12);
+          doc.text('Asset', startX + 5, currentY + 18);
+          doc.text('Photo', startX + colAssetW + 5, currentY + 18);
+          doc.text('Deviation', startX + colAssetW + colPhotoW + 5, currentY + 18);
+          doc.text('Remedial', startX + colAssetW + colPhotoW + colDeviationW + 5, currentY + 18);
+          doc.text('Criticality', startX + colAssetW + colPhotoW + colDeviationW + colRemedialW + 5, currentY + 18);
+          currentY += headerHeight;
         }
-      };
-      reader.readAsDataURL(file);
-    });
 
-    ////////////////////////////////////////////////////////////////////////////
-    // 10) CLEAR ALL from the current instance
-    ////////////////////////////////////////////////////////////////////////////
-    clearAllButton.addEventListener('click', async () => {
-      if (!currentInstance) {
-        alert("No instance selected.");
-        return;
-      }
-      if (!entries.length) {
-        alert("No entries to clear in this instance.");
-        return;
-      }
-      if (confirm(`Are you sure you want to clear all entries in "${currentInstance}"? This cannot be undone.`)) {
-        try {
-          await clearAllEntries(currentInstance);
-          refreshEntries();
-        } catch (err) {
-          console.error("Error clearing entries:", err);
-          alert("Error clearing entries. Check console for details.");
+        function drawRowBorder(y, height) {
+          doc.line(startX, y, startX + tableW, y);
+          doc.line(startX, y + height, startX + tableW, y + height);
+          doc.line(startX, y, startX, y + height);
+          doc.line(startX + colAssetW, y, startX + colAssetW, y + height);
+          doc.line(startX + colAssetW + colPhotoW, y, startX + colAssetW + colPhotoW, y + height);
+          doc.line(startX + colAssetW + colPhotoW + colDeviationW, y, startX + colAssetW + colPhotoW + colDeviationW, y + height);
+          doc.line(startX + colAssetW + colPhotoW + colDeviationW + colRemedialW, y, startX + colAssetW + colPhotoW + colDeviationW + colRemedialW, y + height);
+          doc.line(startX + tableW, y, startX + tableW, y + height);
         }
-      }
-    });
 
-    ////////////////////////////////////////////////////////////////////////////
-    // 11) GENERATE PDF for the current instance
-    ////////////////////////////////////////////////////////////////////////////
-    generatePdfButton.addEventListener('click', () => {
-      if (!currentInstance) {
-        alert("No instance selected.");
-        return;
-      }
-      const { jsPDF } = window.jspdf;
-      const orientation = pdfOrientationSelect.value; // 'l' or 'p'
-      const doc = new jsPDF(orientation, 'pt', 'letter');
-      const pageWidth  = doc.internal.pageSize.getWidth();
-      const pageHeight = doc.internal.pageSize.getHeight();
-      const margin  = 40;
-      const startX  = margin;
-      let currentY  = margin;
-
-      doc.setFontSize(14);
-      doc.text(`Deviation Table - Instance: ${currentInstance}`, startX, currentY);
-      currentY += 20;
-
-      const filterText = searchCodeInput.value.trim().toLowerCase();
-      const pdfEntries = filterText
-        ? entries.filter(e => e.assetCode.toLowerCase().includes(filterText))
-        : entries;
-
-      pdfEntries.forEach((entry, idx) => {
-        if (currentY > pageHeight - margin - 120) {
-          doc.addPage();
-          currentY = margin;
-        }
-        doc.setFontSize(12);
-        doc.text(`(${idx + 1}) Asset Code: ${entry.assetCode}`, startX, currentY);
-        currentY += 14;
-        doc.text(`Deviation: ${entry.deviation}`, startX, currentY);
-        currentY += 14;
-        doc.text(`Remedial: ${entry.remedial}`, startX, currentY);
-        currentY += 14;
-        doc.text(`Criticality: ${entry.criticality}`, startX, currentY);
-        currentY += 14;
-
-        try {
-          const isPng = (entry.image || '').toLowerCase().includes('image/png');
-          const format = isPng ? 'PNG' : 'JPEG';
-          const props = doc.getImageProperties(entry.image);
-          const maxImgW = 200;
-          const maxImgH = 120;
-          let iWidth  = props.width;
-          let iHeight = props.height;
-          const ratio = Math.min(maxImgW / iWidth, maxImgH / iHeight);
-          iWidth  *= ratio;
-          iHeight *= ratio;
-          doc.addImage(entry.image, format, startX, currentY, iWidth, iHeight);
-          currentY += iHeight + 10;
-        } catch (err) {
-          currentY += 10;
-          console.error("Image error:", err);
-        }
+        doc.setFontSize(14);
+        doc.text('Deviation Table', startX, currentY);
         currentY += 10;
+        drawTableHeader();
+
+        // Filter entries similarly to the table
+        const filterText = searchCodeInput.value.trim().toLowerCase();
+        const selectedTopicId = parseInt(topicFilterSelect.value) || null;
+
+        let pdfEntries = filterText
+          ? entries.filter(e => e.assetCode.toLowerCase().includes(filterText))
+          : entries;
+        if (selectedTopicId) {
+          pdfEntries = pdfEntries.filter(e => e.topicId === selectedTopicId);
+        }
+
+        pdfEntries.forEach(entry => {
+          if (currentY + rowHeight > pageHeight - margin) {
+            doc.addPage();
+            currentY = margin;
+            drawTableHeader();
+          }
+          drawRowBorder(currentY, rowHeight);
+          doc.setFontSize(10);
+
+          // Asset
+          const assetX = startX + 5;
+          const assetY = currentY + 20;
+          const assetW_ = colAssetW - 10;
+          const assetLines = doc.splitTextToSize(entry.assetCode, assetW_);
+          doc.text(assetLines, assetX, assetY);
+
+          // Photo
+          const imgX = startX + colAssetW + 5;
+          const maxImgWidth = colPhotoW - 10;
+          const maxImgHeight = rowHeight - 10;
+          try {
+            const isPng = (entry.image || '').toLowerCase().includes('image/png');
+            const format = isPng ? 'PNG' : 'JPEG';
+            const props = doc.getImageProperties(entry.image);
+            let iWidth = props.width;
+            let iHeight = props.height;
+            const ratio = Math.min(maxImgWidth / iWidth, maxImgHeight / iHeight);
+            iWidth *= ratio;
+            iHeight *= ratio;
+            const yOffset = (rowHeight - iHeight) / 2;
+            doc.addImage(entry.image, format, imgX, currentY + yOffset, iWidth, iHeight);
+          } catch (err) {
+            console.error('Image error:', err);
+          }
+
+          // Deviation
+          const deviationX = startX + colAssetW + colPhotoW + 5;
+          const deviationY = currentY + 20;
+          const deviationW_ = colDeviationW - 10;
+          const deviationLines = doc.splitTextToSize(entry.deviation, deviationW_);
+          doc.text(deviationLines, deviationX, deviationY);
+
+          // Remedial
+          const remedX = startX + colAssetW + colPhotoW + colDeviationW + 5;
+          const remedY = currentY + 20;
+          const remedW_ = colRemedialW - 10;
+          const remedLines = doc.splitTextToSize(entry.remedial, remedW_);
+          doc.text(remedLines, remedX, remedY);
+
+          // Criticality
+          const criticalX = startX + colAssetW + colPhotoW + colDeviationW + colRemedialW + 5;
+          const criticalY = currentY + 20;
+          const criticalW_ = colCriticalityW - 10;
+          const criticalLines = doc.splitTextToSize(entry.criticality, criticalW_);
+          doc.text(criticalLines, criticalX, criticalY);
+
+          currentY += rowHeight;
+        });
+
+        doc.save('deviation_tracker.pdf');
       });
 
-      doc.save(`deviation_tracker_${currentInstance}.pdf`);
-    });
-
-    ////////////////////////////////////////////////////////////////////////////
-    // 12) META STORE FOR PERSISTING INSTANCE NAMES
-    ////////////////////////////////////////////////////////////////////////////
-    async function addInstanceName(name) {
-      const all = await getAllInstanceNames();
-      // Only add if not already in the list
-      if (all.find(item => item.name === name)) return;
-      return new Promise((resolve, reject) => {
-        const tx = db.transaction([META_STORE], 'readwrite');
-        const store = tx.objectStore(META_STORE);
-        store.add({ name });
-        tx.oncomplete = () => resolve();
-        tx.onerror = e => reject(e.target.error);
+      ////////////////////////////////////////////////////////////////////////////
+      // 9) Clear All Entries functionality
+      ////////////////////////////////////////////////////////////////////////////
+      clearAllButton.addEventListener('click', async () => {
+        if (confirm("Are you sure you want to clear all entries? This action cannot be undone.")) {
+          try {
+            await clearAllEntriesFromDB();
+            refreshEntries();
+          } catch (err) {
+            console.error("Error clearing entries:", err);
+          }
+        }
       });
-    }
 
-    async function removeInstanceName(name) {
-      return new Promise((resolve, reject) => {
-        const tx = db.transaction([META_STORE], 'readwrite');
-        const store = tx.objectStore(META_STORE);
-        store.delete(name);
-        tx.oncomplete = () => resolve();
-        tx.onerror = e => reject(e.target.error);
+      ////////////////////////////////////////////////////////////////////////////
+      // 10) Topics Management
+      ////////////////////////////////////////////////////////////////////////////
+      // a) Add new Topic
+      addTopicForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const newTopicName = newTopicNameInput.value.trim();
+        if (!newTopicName) return;
+        try {
+          await addTopicToDB(newTopicName);
+          newTopicNameInput.value = '';
+          refreshTopics();
+        } catch (err) {
+          console.error("Error adding topic:", err);
+        }
       });
-    }
 
-    async function getAllInstanceNames() {
-      return new Promise((resolve, reject) => {
-        const tx = db.transaction([META_STORE], 'readonly');
-        const store = tx.objectStore(META_STORE);
-        const req = store.getAll();
-        req.onsuccess = e => resolve(e.target.result);
-        req.onerror = e => reject(e.target.error);
-      });
-    }
+      // b) Render Topics table
+      function renderTopics() {
+        topicsTableBody.innerHTML = '';
+        topics.forEach(topic => {
+          const row = document.createElement('tr');
+          // Topic name
+          const nameTd = document.createElement('td');
+          nameTd.textContent = topic.name;
+          row.appendChild(nameTd);
 
-    // Reload the dropdown from the meta store
-    async function loadInstanceList() {
-      const all = await getAllInstanceNames();
-      instanceSelect.innerHTML = ''; // Clear out old
-      all.forEach(item => {
-        const opt = document.createElement('option');
-        opt.value = item.name;
-        opt.textContent = item.name;
-        instanceSelect.appendChild(opt);
-      });
-      // If currentInstance is missing, reset it
-      if (currentInstance && !all.find(i => i.name === currentInstance)) {
-        currentInstance = '';
-      }
-      // If no current instance but we have at least one, pick the first
-      if (!currentInstance && all.length > 0) {
-        currentInstance = all[0].name;
-        instanceSelect.value = currentInstance;
-      }
-    }
+          // Actions
+          const actionsTd = document.createElement('td');
+          const delBtn = document.createElement('button');
+          delBtn.textContent = 'Delete';
+          delBtn.onclick = async () => {
+            if (confirm(`Remove topic "${topic.name}" and all related entries?`)) {
+              await removeTopicFromDB(topic.id);
+              refreshTopics();
+              refreshEntries();
+            }
+          };
+          actionsTd.appendChild(delBtn);
+          row.appendChild(actionsTd);
 
-    ////////////////////////////////////////////////////////////////////////////
-    // 13) MULTI-INSTANCE UI
-    ////////////////////////////////////////////////////////////////////////////
-    instanceSelect.addEventListener('change', async () => {
-      currentInstance = instanceSelect.value;
-      await refreshEntries();
-    });
+          topicsTableBody.appendChild(row);
+        });
+      }
 
-    addInstanceBtn.addEventListener('click', async () => {
-      const name = newInstanceInput.value.trim();
-      if (!name) {
-        alert("Enter a valid instance name.");
-        return;
-      }
-      try {
-        // Store the name in the meta store
-        await addInstanceName(name);
-        // Ensure the store is created
-        await ensureStoreExists(name);
-        // Reload the list and select the new instance
-        await loadInstanceList();
-        instanceSelect.value = name;
-        currentInstance = name;
-        newInstanceInput.value = '';
-        // Now load data
-        await refreshEntries();
-      } catch (err) {
-        console.error("Error adding instance:", err);
-        alert("Could not create instance. Check console for details.");
-      }
-    });
+      // c) Update <select> fields for topics (both in entry form & filter)
+      function updateTopicsSelect() {
+        topicSelect.innerHTML = '<option value="">(Select a Topic)</option>';
+        topicFilterSelect.innerHTML = '<option value="">All Topics</option>';
+        topics.forEach(topic => {
+          // For entry form
+          const opt1 = document.createElement('option');
+          opt1.value = topic.id;
+          opt1.textContent = topic.name;
+          topicSelect.appendChild(opt1);
 
-    deleteInstanceBtn.addEventListener('click', async () => {
-      const storeName = instanceSelect.value;
-      if (!storeName) {
-        alert("No instance is selected.");
-        return;
+          // For filter
+          const opt2 = document.createElement('option');
+          opt2.value = topic.id;
+          opt2.textContent = topic.name;
+          topicFilterSelect.appendChild(opt2);
+        });
       }
-      if (!confirm(`Are you sure you want to delete instance "${storeName}"? All data will be lost.`)) {
-        return;
-      }
-      try {
-        // Remove from meta store
-        await removeInstanceName(storeName);
-        // Delete the actual object store
-        await deleteInstanceStore(storeName);
-        // Reload the list
-        await loadInstanceList();
-        // Refresh the table
-        await refreshEntries();
-        alert(`Instance "${storeName}" has been deleted.`);
-      } catch (err) {
-        console.error("Error deleting instance store:", err);
-        alert("Could not delete instance. Check console for details.");
-      }
-    });
 
-    ////////////////////////////////////////////////////////////////////////////
-    // 14) ON PAGE LOAD, OPEN DB, LOAD INSTANCE LIST, REFRESH
-    ////////////////////////////////////////////////////////////////////////////
-    window.addEventListener('DOMContentLoaded', async () => {
-      try {
-        // 1) Open DB
-        await openDatabase();
+      // d) Filter entries by topic
+      topicFilterSelect.addEventListener('change', renderEntries);
 
-        // 2) Load known instance names
-        await loadInstanceList();
-
-        // 3) If there's a selected instance, refresh to show its data
-        await refreshEntries();
-      } catch (err) {
-        console.error("Failed to open DB:", err);
-        alert("Could not open IndexedDB. Make sure you're not in incognito or using file://");
-      }
+      ////////////////////////////////////////////////////////////////////////////
+      // 11) On load: open DB, refresh topics & entries
+      ////////////////////////////////////////////////////////////////////////////
+      openDatabase()
+        .then(async () => {
+          await refreshTopics();
+          await refreshEntries();
+        })
+        .catch(err => console.error("Failed to open database:", err));
     });
   </script>
 </body>
