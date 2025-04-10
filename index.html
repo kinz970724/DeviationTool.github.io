@@ -126,21 +126,29 @@
 </head>
 <body>
   <h1>Asset Deviation Tracker (Multi-Topic)</h1>
-
-  <!-- FORM TO ADD NEW ENTRY -->
+  
+  <!-- ADD NEW DEVIATION FORM -->
   <h2>Add a New Deviation</h2>
   <form id="entryForm">
-    <!-- "Topic" is still a text input with a datalist -->
+    <!-- "Topic" (text input with datalist) -->
     <label for="topicInput">Topic (Select or type new):</label>
     <input type="text" id="topicInput" placeholder="Topic name..." list="topicSuggestions" required>
     <datalist id="topicSuggestions"></datalist>
-    
+
+    <!-- Asset Code input with datalist -->
+    <label for="searchCodeInput">Asset Code (Search or type custom):</label>
+    <input type="text" id="searchCodeInput" placeholder="e.g. 131-CON-01..." list="codeSuggestions" />
+    <datalist id="codeSuggestions"></datalist>
+
+    <!-- Photo -->
     <label for="imageInput">Photo:</label>
     <input type="file" id="imageInput" accept="image/*;capture=camera" required>
-    
+
+    <!-- Deviation -->
     <label for="deviationInput">Deviation:</label>
     <textarea id="deviationInput" rows="2" placeholder="Describe the deviation" required></textarea>
-    
+
+    <!-- Criticality -->
     <label for="criticalityInput">Criticality:</label>
     <select id="criticalityInput" required>
       <option value="">Select Criticality</option>
@@ -149,12 +157,14 @@
       <option value="High">High</option>
     </select>
     
+    <!-- Remedial Action -->
     <label for="remedialInput">Remedial Action:</label>
     <textarea id="remedialInput" rows="2" placeholder="e.g. Fix, Replace" required></textarea>
+    
     <button type="submit">Add Entry</button>
   </form>
 
-  <!-- SEARCH & FILTER CONTROLS -->
+  <!-- SEARCH & FILTER FOR THE TABLE -->
   <h2>Search & Filter</h2>
   <div class="topics-filter">
     <label for="topicFilterSelect">Filter By Topic:</label>
@@ -164,12 +174,7 @@
     </select>
   </div>
 
-  <!-- ASSET CODE input with datalist (used for both searching & adding) -->
-  <label for="searchCodeInput">Asset Code (Search or type custom):</label>
-  <input type="text" id="searchCodeInput" placeholder="e.g. 131-CON-01..." list="codeSuggestions" />
-  <datalist id="codeSuggestions"></datalist>
-
-  <!-- PDF Orientation Selector and other buttons -->
+  <!-- PDF/CSV/CLEAR BUTTONS -->
   <div class="buttons">
     <label for="pdfOrientation">PDF Orientation:</label>
     <select id="pdfOrientation">
@@ -181,6 +186,7 @@
     <button id="clearAll">Clear All Entries</button>
   </div>
 
+  <!-- EXISTING ENTRIES TABLE -->
   <h2>Existing Entries</h2>
   <table id="entriesTable">
     <thead>
@@ -196,6 +202,7 @@
     <tbody></tbody>
   </table>
 
+  <!-- MANAGE TOPICS AT THE BOTTOM -->
   <h2>Manage Topics</h2>
   <div class="topics-area">
     <table id="topicsTable">
@@ -209,6 +216,7 @@
     </table>
   </div>
 
+  <!-- SCRIPT BLOCK (UNCHANGED) -->
   <script>
     document.addEventListener("DOMContentLoaded", () => {
       ////////////////////////////////////////////////////////////////////////////
