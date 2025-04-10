@@ -26,7 +26,7 @@
       margin-top: 10px;
       margin-bottom: 10px;
     }
-    form, .buttons, .topics-area {
+    form, .buttons, .topics-area, .topics-filter {
       margin: 20px 0;
       text-align: center;
     }
@@ -127,23 +127,10 @@
 <body>
   <h1>Asset Deviation Tracker (Multi-Topic)</h1>
 
-  <!-- TOPIC SELECTION & FILTERING -->
-  <div class="topics-filter">
-    <label for="topicFilterSelect">Filter By Topic:</label>
-    <select id="topicFilterSelect">
-      <option value="">All Topics</option>
-      <!-- Populated from IndexedDB -->
-    </select>
-  </div>
-
-  <!-- ASSET CODE input with datalist -->
-  <label for="searchCodeInput">Asset Code (Search or type custom):</label>
-  <input type="text" id="searchCodeInput" placeholder="e.g. 131-CON-01..." list="codeSuggestions" />
-  <datalist id="codeSuggestions"></datalist>
-
-  <!-- The Add Entry form -->
+  <!-- FORM TO ADD NEW ENTRY -->
+  <h2>Add a New Deviation</h2>
   <form id="entryForm">
-    <!-- "Topic" is now a text input with a datalist for existing topics -->
+    <!-- "Topic" is still a text input with a datalist -->
     <label for="topicInput">Topic (Select or type new):</label>
     <input type="text" id="topicInput" placeholder="Topic name..." list="topicSuggestions" required>
     <datalist id="topicSuggestions"></datalist>
@@ -166,6 +153,21 @@
     <textarea id="remedialInput" rows="2" placeholder="e.g. Fix, Replace" required></textarea>
     <button type="submit">Add Entry</button>
   </form>
+
+  <!-- SEARCH & FILTER CONTROLS -->
+  <h2>Search & Filter</h2>
+  <div class="topics-filter">
+    <label for="topicFilterSelect">Filter By Topic:</label>
+    <select id="topicFilterSelect">
+      <option value="">All Topics</option>
+      <!-- Populated from IndexedDB -->
+    </select>
+  </div>
+
+  <!-- ASSET CODE input with datalist (used for both searching & adding) -->
+  <label for="searchCodeInput">Asset Code (Search or type custom):</label>
+  <input type="text" id="searchCodeInput" placeholder="e.g. 131-CON-01..." list="codeSuggestions" />
+  <datalist id="codeSuggestions"></datalist>
 
   <!-- PDF Orientation Selector and other buttons -->
   <div class="buttons">
@@ -194,10 +196,8 @@
     <tbody></tbody>
   </table>
 
-  <!-- TOPICS MANAGEMENT -->
   <h2>Manage Topics</h2>
   <div class="topics-area">
-    <!-- We no longer have a separate "Add Topic" form -->
     <table id="topicsTable">
       <thead>
         <tr>
