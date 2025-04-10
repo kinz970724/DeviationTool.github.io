@@ -131,12 +131,12 @@
   <div style="text-align:center; margin-bottom: 15px;">
     <label for="instanceSelect">Select or Create an Instance:</label>
     <select id="instanceSelect">
-      <!-- Empty by default; user must add an instance -->
+      <!-- Initially empty; we'll load from the meta store -->
     </select>
     <!-- Input for a custom instance name -->
     <input type="text" id="newInstanceInput" placeholder="New Instance Name" style="width:auto; display:inline-block;" />
     <button id="addInstanceBtn">Add Instance</button>
-    <!-- New button to delete the currently selected instance -->
+    <!-- Button to delete the currently selected instance -->
     <button id="deleteInstanceBtn" style="background-color: #d9534f;">Delete Instance</button>
   </div>
   
@@ -197,15 +197,19 @@
     ////////////////////////////////////////////////////////////////////////////
     // GLOBALS
     ////////////////////////////////////////////////////////////////////////////
-    let db;                     // The IndexedDB handle
-    let entries = [];           // In-memory array for the current instance's entries
-    let currentInstance = "";   // No default instance
+    let db;                    // The IndexedDB handle
+    let entries = [];          // In-memory array for the current instance's entries
+    let currentInstance = "";  // No default instance
 
     // Database name & version
+    // IMPORTANT: If you previously used version=1, bump this so onupgradeneeded is triggered.
     const DB_NAME = 'DeviationsDB_Multi';
-    const DB_VERSION = 1;
+    const DB_VERSION = 2;
 
-    // For asset code suggestions (if you have assetCodes.txt)
+    // We'll store the instance names in a "meta" store named "__knownStores"
+    const META_STORE = '__knownStores';
+
+    // For asset code suggestions (optional if you have an assetCodes.txt)
     let allCodes = [];
 
     ////////////////////////////////////////////////////////////////////////////
@@ -229,7 +233,7 @@
     const pdfOrientationSelect= document.getElementById('pdfOrientation');
 
     ////////////////////////////////////////////////////////////////////////////
-    // 1) OPEN or UPGRADE THE DATABASE
+    // 1) OPEN or UPGRADE THE DATABASE (async)
     ////////////////////////////////////////////////////////////////////////////
     async function openDatabase() {
       return new Promise((resolve, reject) => {
@@ -240,7 +244,10 @@
         };
         request.onupgradeneeded = event => {
           db = event.target.result;
-          // We'll not create a store by default; user must create an instance
+          // Create meta store if needed
+          if (!db.objectStoreNames.contains(META_STORE)) {
+            db.createObjectStore(META_STORE, { keyPath: 'name' });
+          }
         };
         request.onsuccess = event => {
           db = event.target.result;
@@ -254,25 +261,26 @@
     ////////////////////////////////////////////////////////////////////////////
     function ensureStoreExists(storeName) {
       return new Promise((resolve, reject) => {
-        if (!storeName) {
-          // If user hasn't picked or created an instance, do nothing
-          return resolve();
-        }
+        if (!storeName) return resolve();  // no instance => do nothing
         if (db.objectStoreNames.contains(storeName)) {
           // Already exists
           return resolve();
         }
-        // If store doesn't exist, we must close DB, open with new version
+        // If store doesn't exist, we must close DB and open with new version
         db.close();
         const req = indexedDB.open(DB_NAME, db.version + 1);
         req.onupgradeneeded = event => {
           const upgradeDB = event.target.result;
+          // Make sure meta store also exists
+          if (!upgradeDB.objectStoreNames.contains(META_STORE)) {
+            upgradeDB.createObjectStore(META_STORE, { keyPath: 'name' });
+          }
           if (!upgradeDB.objectStoreNames.contains(storeName)) {
             upgradeDB.createObjectStore(storeName, { keyPath: 'id', autoIncrement: true });
           }
         };
         req.onsuccess = event => {
-          db = event.target.result;
+          db = event.target.result; // reassign global db
           resolve();
         };
         req.onerror = event => reject(event.target.error);
@@ -309,59 +317,59 @@
     ////////////////////////////////////////////////////////////////////////////
     function getAllEntries(storeName) {
       return new Promise((resolve, reject) => {
-        if (!storeName) return resolve([]); // No instance => no data
-        const transaction = db.transaction([storeName], 'readonly');
-        const store = transaction.objectStore(storeName);
-        const request = store.getAll();
-        request.onsuccess = event => resolve(event.target.result);
-        request.onerror = event => reject(event.target.error);
+        if (!storeName) return resolve([]); 
+        const tx = db.transaction([storeName], 'readonly');
+        const store = tx.objectStore(storeName);
+        const req = store.getAll();
+        req.onsuccess = e => resolve(e.target.result);
+        req.onerror = e => reject(e.target.error);
       });
     }
 
     function addEntry(storeName, entry) {
       return new Promise((resolve, reject) => {
         if (!storeName) return reject("No instance selected");
-        const transaction = db.transaction([storeName], 'readwrite');
-        const store = transaction.objectStore(storeName);
-        const request = store.add(entry);
-        request.onsuccess = event => {
-          entry.id = event.target.result;
+        const tx = db.transaction([storeName], 'readwrite');
+        const store = tx.objectStore(storeName);
+        const req = store.add(entry);
+        req.onsuccess = e => {
+          entry.id = e.target.result;
           resolve(entry);
         };
-        request.onerror = event => reject(event.target.error);
+        req.onerror = e => reject(e.target.error);
       });
     }
 
     function updateEntry(storeName, entry) {
       return new Promise((resolve, reject) => {
         if (!storeName) return reject("No instance selected");
-        const transaction = db.transaction([storeName], 'readwrite');
-        const store = transaction.objectStore(storeName);
-        const request = store.put(entry);
-        request.onsuccess = () => resolve();
-        request.onerror = event => reject(event.target.error);
+        const tx = db.transaction([storeName], 'readwrite');
+        const store = tx.objectStore(storeName);
+        const req = store.put(entry);
+        req.onsuccess = () => resolve();
+        req.onerror = e => reject(e.target.error);
       });
     }
 
     function removeEntry(storeName, id) {
       return new Promise((resolve, reject) => {
         if (!storeName) return reject("No instance selected");
-        const transaction = db.transaction([storeName], 'readwrite');
-        const store = transaction.objectStore(storeName);
-        const request = store.delete(id);
-        request.onsuccess = () => resolve();
-        request.onerror = event => reject(event.target.error);
+        const tx = db.transaction([storeName], 'readwrite');
+        const store = tx.objectStore(storeName);
+        const req = store.delete(id);
+        req.onsuccess = () => resolve();
+        req.onerror = e => reject(e.target.error);
       });
     }
 
     function clearAllEntries(storeName) {
       return new Promise((resolve, reject) => {
         if (!storeName) return reject("No instance selected");
-        const transaction = db.transaction([storeName], 'readwrite');
-        const store = transaction.objectStore(storeName);
-        const request = store.clear();
-        request.onsuccess = () => resolve();
-        request.onerror = event => reject(event.target.error);
+        const tx = db.transaction([storeName], 'readwrite');
+        const store = tx.objectStore(storeName);
+        const req = store.clear();
+        req.onsuccess = () => resolve();
+        req.onerror = e => reject(e.target.error);
       });
     }
 
@@ -371,14 +379,11 @@
     async function refreshEntries() {
       try {
         if (!currentInstance) {
-          // If no instance is selected, just clear the table
           entries = [];
           renderEntries();
           return;
         }
-        // Ensure the store for current instance
         await ensureStoreExists(currentInstance);
-        // Load entries
         entries = await getAllEntries(currentInstance);
         renderEntries();
       } catch (err) {
@@ -392,9 +397,9 @@
     function renderEntries() {
       entriesTableBody.innerHTML = '';
       if (!currentInstance) {
-        // No instance chosen => no data
-        return;
+        return; // no instance => empty table
       }
+
       const filterText = searchCodeInput.value.trim().toLowerCase();
       let rowsToShow = filterText
         ? entries.filter(e => e.assetCode.toLowerCase().includes(filterText))
@@ -403,79 +408,75 @@
       rowsToShow = rowsToShow.slice(0, 50);
 
       rowsToShow.forEach(entry => {
-        const row = document.createElement('tr');
+        const tr = document.createElement('tr');
 
         // Asset Code
-        const assetTd = document.createElement('td');
-        assetTd.setAttribute('data-label', 'Asset Code');
+        const tdAsset = document.createElement('td');
+        tdAsset.setAttribute('data-label', 'Asset Code');
         const assetArea = document.createElement('textarea');
         assetArea.value = entry.assetCode;
         assetArea.rows = 1;
         assetArea.style.width = '100%';
         assetArea.oninput = () => {
           entry.assetCode = assetArea.value;
-          updateEntry(currentInstance, entry)
-            .catch(err => console.error("Error updating entry:", err));
+          updateEntry(currentInstance, entry).catch(err => console.error("Error updating entry:", err));
         };
-        assetTd.appendChild(assetArea);
-        row.appendChild(assetTd);
+        tdAsset.appendChild(assetArea);
+        tr.appendChild(tdAsset);
 
         // Photo
-        const photoTd = document.createElement('td');
-        photoTd.setAttribute('data-label', 'Photo');
+        const tdPhoto = document.createElement('td');
+        tdPhoto.setAttribute('data-label', 'Photo');
         const img = document.createElement('img');
         img.src = entry.image;
-        photoTd.appendChild(img);
-        row.appendChild(photoTd);
+        tdPhoto.appendChild(img);
+        tr.appendChild(tdPhoto);
 
         // Deviation
-        const deviationTd = document.createElement('td');
-        deviationTd.setAttribute('data-label', 'Deviation');
+        const tdDeviation = document.createElement('td');
+        tdDeviation.setAttribute('data-label', 'Deviation');
         const devArea = document.createElement('textarea');
         devArea.value = entry.deviation;
         devArea.rows = 2;
         devArea.style.width = '100%';
         devArea.oninput = () => {
           entry.deviation = devArea.value;
-          updateEntry(currentInstance, entry)
-            .catch(err => console.error("Error updating entry:", err));
+          updateEntry(currentInstance, entry).catch(err => console.error("Error updating entry:", err));
         };
-        deviationTd.appendChild(devArea);
-        row.appendChild(deviationTd);
+        tdDeviation.appendChild(devArea);
+        tr.appendChild(tdDeviation);
 
-        // Remedial Action
-        const remedTd = document.createElement('td');
-        remedTd.setAttribute('data-label', 'Remedial Action');
-        const remedArea = document.createElement('textarea');
-        remedArea.value = entry.remedial;
-        remedArea.rows = 2;
-        remedArea.style.width = '100%';
-        remedArea.oninput = () => {
-          entry.remedial = remedArea.value;
-          updateEntry(currentInstance, entry)
-            .catch(err => console.error("Error updating entry:", err));
+        // Remedial
+        const tdRemedial = document.createElement('td');
+        tdRemedial.setAttribute('data-label', 'Remedial Action');
+        const remArea = document.createElement('textarea');
+        remArea.value = entry.remedial;
+        remArea.rows = 2;
+        remArea.style.width = '100%';
+        remArea.oninput = () => {
+          entry.remedial = remArea.value;
+          updateEntry(currentInstance, entry).catch(err => console.error("Error updating entry:", err));
         };
-        remedTd.appendChild(remedArea);
-        row.appendChild(remedTd);
+        tdRemedial.appendChild(remArea);
+        tr.appendChild(tdRemedial);
 
         // Criticality
-        const critTd = document.createElement('td');
-        critTd.setAttribute('data-label', 'Criticality');
+        const tdCriticality = document.createElement('td');
+        tdCriticality.setAttribute('data-label', 'Criticality');
         const critArea = document.createElement('textarea');
         critArea.value = entry.criticality;
         critArea.rows = 1;
         critArea.style.width = '100%';
         critArea.oninput = () => {
           entry.criticality = critArea.value;
-          updateEntry(currentInstance, entry)
-            .catch(err => console.error("Error updating entry:", err));
+          updateEntry(currentInstance, entry).catch(err => console.error("Error updating entry:", err));
         };
-        critTd.appendChild(critArea);
-        row.appendChild(critTd);
+        tdCriticality.appendChild(critArea);
+        tr.appendChild(tdCriticality);
 
         // Actions
-        const actionsTd = document.createElement('td');
-        actionsTd.setAttribute('data-label', 'Actions');
+        const tdActions = document.createElement('td');
+        tdActions.setAttribute('data-label', 'Actions');
         const deleteBtn = document.createElement('button');
         deleteBtn.textContent = 'Delete';
         deleteBtn.onclick = () => {
@@ -485,10 +486,10 @@
               .catch(err => console.error("Error deleting entry:", err));
           }
         };
-        actionsTd.appendChild(deleteBtn);
-        row.appendChild(actionsTd);
+        tdActions.appendChild(deleteBtn);
+        tr.appendChild(tdActions);
 
-        entriesTableBody.appendChild(row);
+        entriesTableBody.appendChild(tr);
       });
     }
 
@@ -503,8 +504,14 @@
       };
     }
 
+    const handleSearch = debounce(() => {
+      updateCodeSuggestions();
+      renderEntries();
+    }, 800);
+    searchCodeInput.addEventListener('input', handleSearch);
+
     ////////////////////////////////////////////////////////////////////////////
-    // 8) Load Asset Codes from assetCodes.txt (optional)
+    // 8) Optional: Load Asset Codes from assetCodes.txt
     ////////////////////////////////////////////////////////////////////////////
     fetch('assetCodes.txt')
       .then(res => {
@@ -519,7 +526,7 @@
     function updateCodeSuggestions() {
       codeSuggestions.innerHTML = '';
       const typed = searchCodeInput.value.trim().toLowerCase();
-      const matched = typed
+      let matched = typed
         ? allCodes.filter(code => code.toLowerCase().includes(typed))
         : allCodes;
       const MAX_SUGGESTIONS = 50;
@@ -529,12 +536,6 @@
         codeSuggestions.appendChild(opt);
       });
     }
-
-    const handleSearch = debounce(() => {
-      updateCodeSuggestions();
-      renderEntries();
-    }, 800);
-    searchCodeInput.addEventListener('input', handleSearch);
 
     ////////////////////////////////////////////////////////////////////////////
     // 9) ADD NEW ENTRY
@@ -641,7 +642,6 @@
         ? entries.filter(e => e.assetCode.toLowerCase().includes(filterText))
         : entries;
 
-      // Simple layout approach: one record per "block"
       pdfEntries.forEach((entry, idx) => {
         if (currentY > pageHeight - margin - 120) {
           doc.addPage();
@@ -657,7 +657,6 @@
         doc.text(`Criticality: ${entry.criticality}`, startX, currentY);
         currentY += 14;
 
-        // Attempt to add image
         try {
           const isPng = (entry.image || '').toLowerCase().includes('image/png');
           const format = isPng ? 'PNG' : 'JPEG';
@@ -682,15 +681,70 @@
     });
 
     ////////////////////////////////////////////////////////////////////////////
-    // 12) CHANGE the current instance
+    // 12) META STORE FOR PERSISTING INSTANCE NAMES
+    ////////////////////////////////////////////////////////////////////////////
+    async function addInstanceName(name) {
+      const all = await getAllInstanceNames();
+      // Only add if not already in the list
+      if (all.find(item => item.name === name)) return;
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction([META_STORE], 'readwrite');
+        const store = tx.objectStore(META_STORE);
+        store.add({ name });
+        tx.oncomplete = () => resolve();
+        tx.onerror = e => reject(e.target.error);
+      });
+    }
+
+    async function removeInstanceName(name) {
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction([META_STORE], 'readwrite');
+        const store = tx.objectStore(META_STORE);
+        store.delete(name);
+        tx.oncomplete = () => resolve();
+        tx.onerror = e => reject(e.target.error);
+      });
+    }
+
+    async function getAllInstanceNames() {
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction([META_STORE], 'readonly');
+        const store = tx.objectStore(META_STORE);
+        const req = store.getAll();
+        req.onsuccess = e => resolve(e.target.result);
+        req.onerror = e => reject(e.target.error);
+      });
+    }
+
+    // Reload the dropdown from the meta store
+    async function loadInstanceList() {
+      const all = await getAllInstanceNames();
+      instanceSelect.innerHTML = ''; // Clear out old
+      all.forEach(item => {
+        const opt = document.createElement('option');
+        opt.value = item.name;
+        opt.textContent = item.name;
+        instanceSelect.appendChild(opt);
+      });
+      // If currentInstance is missing, reset it
+      if (currentInstance && !all.find(i => i.name === currentInstance)) {
+        currentInstance = '';
+      }
+      // If no current instance but we have at least one, pick the first
+      if (!currentInstance && all.length > 0) {
+        currentInstance = all[0].name;
+        instanceSelect.value = currentInstance;
+      }
+    }
+
+    ////////////////////////////////////////////////////////////////////////////
+    // 13) MULTI-INSTANCE UI
     ////////////////////////////////////////////////////////////////////////////
     instanceSelect.addEventListener('change', async () => {
       currentInstance = instanceSelect.value;
-      // Wait for refresh (which ensures store creation, loads entries)
       await refreshEntries();
     });
 
-    // Add a new instance from user input
     addInstanceBtn.addEventListener('click', async () => {
       const name = newInstanceInput.value.trim();
       if (!name) {
@@ -698,18 +752,16 @@
         return;
       }
       try {
-        // Add to the <select>
-        const opt = document.createElement('option');
-        opt.value = name;
-        opt.textContent = name;
-        instanceSelect.appendChild(opt);
-
-        // Select the new instance
+        // Store the name in the meta store
+        await addInstanceName(name);
+        // Ensure the store is created
+        await ensureStoreExists(name);
+        // Reload the list and select the new instance
+        await loadInstanceList();
         instanceSelect.value = name;
         currentInstance = name;
         newInstanceInput.value = '';
-
-        // Ensure store is created, load it
+        // Now load data
         await refreshEntries();
       } catch (err) {
         console.error("Error adding instance:", err);
@@ -717,7 +769,6 @@
       }
     });
 
-    // Delete the currently selected instance
     deleteInstanceBtn.addEventListener('click', async () => {
       const storeName = instanceSelect.value;
       if (!storeName) {
@@ -728,16 +779,13 @@
         return;
       }
       try {
+        // Remove from meta store
+        await removeInstanceName(storeName);
+        // Delete the actual object store
         await deleteInstanceStore(storeName);
-        // Remove from select
-        const optionToRemove = [...instanceSelect.options].find(opt => opt.value === storeName);
-        if (optionToRemove) {
-          instanceSelect.removeChild(optionToRemove);
-        }
-        // Clear if we just deleted the currently selected instance
-        if (currentInstance === storeName) {
-          currentInstance = "";
-        }
+        // Reload the list
+        await loadInstanceList();
+        // Refresh the table
         await refreshEntries();
         alert(`Instance "${storeName}" has been deleted.`);
       } catch (err) {
@@ -747,15 +795,21 @@
     });
 
     ////////////////////////////////////////////////////////////////////////////
-    // 13) On page load, open DB, but no default store. Wait for user to add instance
+    // 14) ON PAGE LOAD, OPEN DB, LOAD INSTANCE LIST, REFRESH
     ////////////////////////////////////////////////////////////////////////////
     window.addEventListener('DOMContentLoaded', async () => {
       try {
+        // 1) Open DB
         await openDatabase();
-        // No default instance => do nothing
-        // The user must add an instance, then we call refreshEntries()
+
+        // 2) Load known instance names
+        await loadInstanceList();
+
+        // 3) If there's a selected instance, refresh to show its data
+        await refreshEntries();
       } catch (err) {
         console.error("Failed to open DB:", err);
+        alert("Could not open IndexedDB. Make sure you're not in incognito or using file://");
       }
     });
   </script>
