@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Asset Deviation Tracker with Topics</title>
+  <title>Asset Deviation Tracker (Multi-Topic, Faster Topic Add)</title>
   <!-- Make pages scale nicely on phones -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <!-- jsPDF from CDN for PDF generation -->
@@ -132,7 +132,7 @@
     <label for="topicFilterSelect">Filter By Topic:</label>
     <select id="topicFilterSelect">
       <option value="">All Topics</option>
-      <!-- Will populate from IndexedDB -->
+      <!-- Populated from IndexedDB -->
     </select>
   </div>
 
@@ -143,11 +143,10 @@
 
   <!-- The Add Entry form -->
   <form id="entryForm">
-    <label for="topicSelect">Select Topic:</label>
-    <select id="topicSelect" required>
-      <option value="">(Select a Topic)</option>
-      <!-- Will be populated from DB -->
-    </select>
+    <!-- "Topic" is now a text input with a datalist for existing topics -->
+    <label for="topicInput">Topic (Select or type new):</label>
+    <input type="text" id="topicInput" placeholder="Topic name..." list="topicSuggestions" required>
+    <datalist id="topicSuggestions"></datalist>
     
     <label for="imageInput">Photo:</label>
     <input type="file" id="imageInput" accept="image/*;capture=camera" required>
@@ -198,11 +197,7 @@
   <!-- TOPICS MANAGEMENT -->
   <h2>Manage Topics</h2>
   <div class="topics-area">
-    <form id="addTopicForm">
-      <label for="newTopicName">Topic Name:</label>
-      <input type="text" id="newTopicName" placeholder="Enter a Topic Name" required>
-      <button type="submit">Add Topic</button>
-    </form>
+    <!-- We no longer have a separate "Add Topic" form -->
     <table id="topicsTable">
       <thead>
         <tr>
@@ -210,7 +205,7 @@
           <th>Actions</th>
         </tr>
       </thead>
-      <tbody><!-- Will be populated dynamically --></tbody>
+      <tbody><!-- Populated dynamically --></tbody>
     </table>
   </div>
 
@@ -220,7 +215,7 @@
       // Constants and DB Setup
       ////////////////////////////////////////////////////////////////////////////
       const DB_NAME = 'DeviationsDB_MultiTopic';
-      const DB_VERSION = 2; // incremented version for new store
+      const DB_VERSION = 3; // increment version for changes
       const ENTRIES_STORE = 'entries';
       const TOPICS_STORE = 'topics';
       let db;
@@ -229,7 +224,9 @@
       let entries = [];
       let topics = [];
 
-      // Open DB with both 'entries' store & 'topics' store
+      ////////////////////////////////////////////////////////////////////////////
+      // Open or Upgrade the DB with 2 stores: 'entries' and 'topics'
+      ////////////////////////////////////////////////////////////////////////////
       function openDatabase() {
         return new Promise((resolve, reject) => {
           const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -340,7 +337,7 @@
 
       async function removeTopicFromDB(topicId) {
         // 1) Remove the topic record itself
-        // 2) Optionally remove all entries associated with that topic
+        // 2) Remove all entries that belong to this topic
         try {
           // remove the topic
           await new Promise((resolve, reject) => {
@@ -350,7 +347,7 @@
             req.onsuccess = () => resolve();
             req.onerror = ev => reject(ev.target.error);
           });
-          // remove all entries that had this topic
+          // remove all associated entries
           const toRemove = entries.filter(e => e.topicId === topicId);
           for (const entry of toRemove) {
             await removeEntryFromDB(entry.id);
@@ -360,10 +357,42 @@
         }
       }
 
+      ////////////////////////////////////////////////////////////////////////////
+      // Refresh & Render Topics
+      ////////////////////////////////////////////////////////////////////////////
       async function refreshTopics() {
         topics = await getAllTopicsFromDB();
-        renderTopics();   // for table in "Manage Topics"
-        updateTopicsSelect(); // for the <select> in entry form & filter
+        renderTopicsTable();   
+        updateTopicFilterSelect();
+        updateTopicSuggestions();
+      }
+
+      function renderTopicsTable() {
+        const topicsTableBody = document.querySelector('#topicsTable tbody');
+        topicsTableBody.innerHTML = '';
+        topics.forEach(topic => {
+          const row = document.createElement('tr');
+          // Topic name
+          const nameTd = document.createElement('td');
+          nameTd.textContent = topic.name;
+          row.appendChild(nameTd);
+
+          // Actions
+          const actionsTd = document.createElement('td');
+          const delBtn = document.createElement('button');
+          delBtn.textContent = 'Delete';
+          delBtn.onclick = async () => {
+            if (confirm(`Remove topic "${topic.name}" and all related entries?`)) {
+              await removeTopicFromDB(topic.id);
+              await refreshEntries();
+              await refreshTopics();
+            }
+          };
+          actionsTd.appendChild(delBtn);
+          row.appendChild(actionsTd);
+
+          topicsTableBody.appendChild(row);
+        });
       }
 
       ////////////////////////////////////////////////////////////////////////////
@@ -387,6 +416,8 @@
       ////////////////////////////////////////////////////////////////////////////
       const searchCodeInput       = document.getElementById('searchCodeInput');
       const codeSuggestions       = document.getElementById('codeSuggestions');
+      const topicInput            = document.getElementById('topicInput');
+      const topicSuggestions      = document.getElementById('topicSuggestions');
       const entryForm             = document.getElementById('entryForm');
       const imageInput            = document.getElementById('imageInput');
       const deviationInput        = document.getElementById('deviationInput');
@@ -394,15 +425,9 @@
       const remedialInput         = document.getElementById('remedialInput');
       const entriesTableBody      = document.querySelector('#entriesTable tbody');
       const generatePdfButton     = document.getElementById('generatePdf');
-      // const exportCsvButton    = document.getElementById('exportCsv'); // future
       const clearAllButton        = document.getElementById('clearAll');
       const pdfOrientationSelect  = document.getElementById('pdfOrientation');
-      const topicSelect           = document.getElementById('topicSelect'); // in main form
-      const topicFilterSelect     = document.getElementById('topicFilterSelect'); // top filter
-      // Topics management
-      const addTopicForm          = document.getElementById('addTopicForm');
-      const newTopicNameInput     = document.getElementById('newTopicName');
-      const topicsTableBody       = document.querySelector('#topicsTable tbody');
+      const topicFilterSelect     = document.getElementById('topicFilterSelect');
 
       ////////////////////////////////////////////////////////////////////////////
       // 3) Debounce Helper (1 second delay)
@@ -416,12 +441,14 @@
       }
 
       ////////////////////////////////////////////////////////////////////////////
-      // 4) Update <datalist> (limit suggestions)
+      // 4) Update code <datalist> (limit suggestions)
       ////////////////////////////////////////////////////////////////////////////
       function updateCodeSuggestions() {
         codeSuggestions.innerHTML = '';
         const typed = searchCodeInput.value.trim().toLowerCase();
-        let matched = typed ? allCodes.filter(code => code.toLowerCase().includes(typed)) : allCodes;
+        let matched = typed 
+          ? allCodes.filter(code => code.toLowerCase().includes(typed)) 
+          : allCodes;
         const MAX_SUGGESTIONS = 50;
         matched.slice(0, MAX_SUGGESTIONS).forEach(code => {
           const opt = document.createElement('option');
@@ -431,7 +458,19 @@
       }
 
       ////////////////////////////////////////////////////////////////////////////
-      // 5) Render the table with filtering
+      // For TOPIC input (type or pick from existing). If user typed new, add it.
+      ////////////////////////////////////////////////////////////////////////////
+      function updateTopicSuggestions() {
+        topicSuggestions.innerHTML = '';
+        topics.forEach(t => {
+          const opt = document.createElement('option');
+          opt.value = t.name;
+          topicSuggestions.appendChild(opt);
+        });
+      }
+
+      ////////////////////////////////////////////////////////////////////////////
+      // 5) Render ENTRIES table (with filter by code & topic)
       ////////////////////////////////////////////////////////////////////////////
       function renderEntries() {
         entriesTableBody.innerHTML = '';
@@ -547,19 +586,20 @@
       }
 
       ////////////////////////////////////////////////////////////////////////////
-      // 6) Add new entry form
+      // 6) Add new entry form logic
       ////////////////////////////////////////////////////////////////////////////
-      entryForm.addEventListener('submit', e => {
+      entryForm.addEventListener('submit', async e => {
         e.preventDefault();
+
         const code = searchCodeInput.value.trim();
         const file = imageInput.files[0];
         const deviation = deviationInput.value.trim();
         const criticality = criticalityInput.value.trim();
         const remedial = remedialInput.value.trim();
-        const topicId = parseInt(topicSelect.value); // Must exist
+        const typedTopicName = topicInput.value.trim();
 
-        if (!topicId) {
-          alert('Please select a Topic.');
+        if (!typedTopicName) {
+          alert('Please specify a Topic name.');
           return;
         }
         if (!code) {
@@ -571,12 +611,34 @@
           return;
         }
         if (!deviation || !criticality || !remedial) {
-          alert('Please fill out all fields (Deviation, Criticality, and Remedial Action).');
+          alert('Please fill out Deviation, Criticality, and Remedial Action.');
           return;
         }
 
+        // Check if this typed topic already exists (case-insensitive)
+        let matchingTopic = topics.find(
+          t => t.name.toLowerCase() === typedTopicName.toLowerCase()
+        );
+
+        // If not found, create it:
+        if (!matchingTopic) {
+          try {
+            matchingTopic = await addTopicToDB(typedTopicName);
+            // Also push into our in-memory array
+            topics.push(matchingTopic);
+            // Re-render topic suggestions and table
+            updateTopicSuggestions();
+            renderTopicsTable();
+            updateTopicFilterSelect();
+          } catch (err) {
+            console.error("Error creating new topic:", err);
+            return;
+          }
+        }
+
+        // Convert photo file -> base64
         const reader = new FileReader();
-        reader.onload = function(evt) {
+        reader.onload = async function(evt) {
           const imageData = evt.target.result;
           const newEntry = {
             assetCode: code,
@@ -584,26 +646,26 @@
             deviation: deviation,
             remedial: remedial,
             criticality: criticality,
-            topicId: topicId, // link to the topic
+            topicId: matchingTopic.id, // link to the newly found or created topic
             timestamp: Date.now()
           };
-          addEntryToDB(newEntry)
-            .then(() => {
-              // Refresh the table without reloading the entire page:
-              refreshEntries();
-              // Clear form fields
-              imageInput.value = '';
-              deviationInput.value = '';
-              criticalityInput.value = '';
-              remedialInput.value = '';
-            })
-            .catch(err => console.error("Error adding entry:", err));
+          try {
+            await addEntryToDB(newEntry);
+            await refreshEntries();
+            // Clear form fields
+            imageInput.value = '';
+            deviationInput.value = '';
+            criticalityInput.value = '';
+            remedialInput.value = '';
+          } catch (err) {
+            console.error("Error adding entry:", err);
+          }
         };
         reader.readAsDataURL(file);
       });
 
       ////////////////////////////////////////////////////////////////////////////
-      // 7) Debounced search for datalist and table filter
+      // 7) Debounced search for code suggestions & re-render table
       ////////////////////////////////////////////////////////////////////////////
       const handleSearch = debounce(() => {
         updateCodeSuggestions();
@@ -612,7 +674,7 @@
       searchCodeInput.addEventListener('input', handleSearch);
 
       ////////////////////////////////////////////////////////////////////////////
-      // 8) Generate PDF using jsPDF in selected orientation ensuring complete rows on pages
+      // 8) PDF Generation
       ////////////////////////////////////////////////////////////////////////////
       generatePdfButton.addEventListener('click', () => {
         const { jsPDF } = window.jspdf;
@@ -633,7 +695,7 @@
         const rowHeight = 130;
         const headerHeight = 30;
 
-        // Table header
+        // Draw table header
         function drawTableHeader() {
           drawRowBorder(currentY, headerHeight);
           doc.setFontSize(12);
@@ -661,7 +723,7 @@
         currentY += 10;
         drawTableHeader();
 
-        // Filter entries similarly to the table
+        // Filter entries just like the table
         const filterText = searchCodeInput.value.trim().toLowerCase();
         const selectedTopicId = parseInt(topicFilterSelect.value) || null;
 
@@ -749,71 +811,20 @@
       });
 
       ////////////////////////////////////////////////////////////////////////////
-      // 10) Topics Management
+      // 10) Filter by topic
       ////////////////////////////////////////////////////////////////////////////
-      // a) Add new Topic
-      addTopicForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const newTopicName = newTopicNameInput.value.trim();
-        if (!newTopicName) return;
-        try {
-          await addTopicToDB(newTopicName);
-          newTopicNameInput.value = '';
-          refreshTopics();
-        } catch (err) {
-          console.error("Error adding topic:", err);
-        }
-      });
+      topicFilterSelect.addEventListener('change', renderEntries);
 
-      // b) Render Topics table
-      function renderTopics() {
-        topicsTableBody.innerHTML = '';
-        topics.forEach(topic => {
-          const row = document.createElement('tr');
-          // Topic name
-          const nameTd = document.createElement('td');
-          nameTd.textContent = topic.name;
-          row.appendChild(nameTd);
-
-          // Actions
-          const actionsTd = document.createElement('td');
-          const delBtn = document.createElement('button');
-          delBtn.textContent = 'Delete';
-          delBtn.onclick = async () => {
-            if (confirm(`Remove topic "${topic.name}" and all related entries?`)) {
-              await removeTopicFromDB(topic.id);
-              refreshTopics();
-              refreshEntries();
-            }
-          };
-          actionsTd.appendChild(delBtn);
-          row.appendChild(actionsTd);
-
-          topicsTableBody.appendChild(row);
-        });
-      }
-
-      // c) Update <select> fields for topics (both in entry form & filter)
-      function updateTopicsSelect() {
-        topicSelect.innerHTML = '<option value="">(Select a Topic)</option>';
+      // Update the "Filter By Topic" <select>
+      function updateTopicFilterSelect() {
         topicFilterSelect.innerHTML = '<option value="">All Topics</option>';
         topics.forEach(topic => {
-          // For entry form
-          const opt1 = document.createElement('option');
-          opt1.value = topic.id;
-          opt1.textContent = topic.name;
-          topicSelect.appendChild(opt1);
-
-          // For filter
-          const opt2 = document.createElement('option');
-          opt2.value = topic.id;
-          opt2.textContent = topic.name;
-          topicFilterSelect.appendChild(opt2);
+          const opt = document.createElement('option');
+          opt.value = topic.id;
+          opt.textContent = topic.name;
+          topicFilterSelect.appendChild(opt);
         });
       }
-
-      // d) Filter entries by topic
-      topicFilterSelect.addEventListener('change', renderEntries);
 
       ////////////////////////////////////////////////////////////////////////////
       // 11) On load: open DB, refresh topics & entries
@@ -824,6 +835,11 @@
           await refreshEntries();
         })
         .catch(err => console.error("Failed to open database:", err));
+
+      ////////////////////////////////////////////////////////////////////////////
+      // 12) Code searching/typing triggers table re-render
+      ////////////////////////////////////////////////////////////////////////////
+      searchCodeInput.addEventListener('input', handleSearch);
     });
   </script>
 </body>
