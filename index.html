@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Asset Deviation Tracker (Multiple Instances)</title>
+  <title>Asset Deviation Tracker (Multiple Instances, No Defaults)</title>
   <!-- Make pages scale nicely on phones -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <!-- jsPDF from CDN for PDF generation -->
@@ -131,7 +131,7 @@
   <div style="text-align:center; margin-bottom: 15px;">
     <label for="instanceSelect">Select or Create an Instance:</label>
     <select id="instanceSelect">
-      <!-- No default options; user must add an instance -->
+      <!-- Empty by default; user must add an instance -->
     </select>
     <!-- Input for a custom instance name -->
     <input type="text" id="newInstanceInput" placeholder="New Instance Name" style="width:auto; display:inline-block;" />
@@ -197,9 +197,9 @@
     ////////////////////////////////////////////////////////////////////////////
     // GLOBALS
     ////////////////////////////////////////////////////////////////////////////
-    let db; // The IndexedDB handle
-    let entries = []; // In-memory array for the current instance's entries
-    let currentInstance = ""; // No default instance; must be chosen or created
+    let db;                     // The IndexedDB handle
+    let entries = [];           // In-memory array for the current instance's entries
+    let currentInstance = "";   // No default instance
 
     // Database name & version
     const DB_NAME = 'DeviationsDB_Multi';
@@ -231,7 +231,7 @@
     ////////////////////////////////////////////////////////////////////////////
     // 1) OPEN or UPGRADE THE DATABASE
     ////////////////////////////////////////////////////////////////////////////
-    function openDatabase() {
+    async function openDatabase() {
       return new Promise((resolve, reject) => {
         const request = indexedDB.open(DB_NAME, DB_VERSION);
         request.onerror = event => {
@@ -240,7 +240,7 @@
         };
         request.onupgradeneeded = event => {
           db = event.target.result;
-          // We won't create any store here by default; user must add an instance
+          // We'll not create a store by default; user must create an instance
         };
         request.onsuccess = event => {
           db = event.target.result;
@@ -504,7 +504,7 @@
     }
 
     ////////////////////////////////////////////////////////////////////////////
-    // 8) (Optional) Load Asset Codes from assetCodes.txt
+    // 8) Load Asset Codes from assetCodes.txt (optional)
     ////////////////////////////////////////////////////////////////////////////
     fetch('assetCodes.txt')
       .then(res => {
@@ -541,7 +541,6 @@
     ////////////////////////////////////////////////////////////////////////////
     entryForm.addEventListener('submit', e => {
       e.preventDefault();
-      // Make sure an instance is selected
       if (!currentInstance) {
         alert("Please create or select an instance first.");
         return;
@@ -566,7 +565,7 @@
       }
 
       const reader = new FileReader();
-      reader.onload = function(evt) {
+      reader.onload = async function(evt) {
         const imageData = evt.target.result;
         const newEntry = {
           assetCode: code,
@@ -576,17 +575,19 @@
           criticality: criticality,
           timestamp: Date.now()
         };
-        addEntry(currentInstance, newEntry)
-          .then(() => {
-            // Clear form
-            imageInput.value = '';
-            deviationInput.value = '';
-            criticalityInput.value = '';
-            remedialInput.value = '';
-            // Refresh
-            refreshEntries();
-          })
-          .catch(err => console.error("Error adding entry:", err));
+        try {
+          await addEntry(currentInstance, newEntry);
+          // Clear form
+          imageInput.value = '';
+          deviationInput.value = '';
+          criticalityInput.value = '';
+          remedialInput.value = '';
+          // Refresh
+          await refreshEntries();
+        } catch(err) {
+          console.error("Error adding entry:", err);
+          alert("Failed to add entry. Check console for details.");
+        }
       };
       reader.readAsDataURL(file);
     });
@@ -609,6 +610,7 @@
           refreshEntries();
         } catch (err) {
           console.error("Error clearing entries:", err);
+          alert("Error clearing entries. Check console for details.");
         }
       }
     });
@@ -639,7 +641,7 @@
         ? entries.filter(e => e.assetCode.toLowerCase().includes(filterText))
         : entries;
 
-      // Simple layout approach: one record per block
+      // Simple layout approach: one record per "block"
       pdfEntries.forEach((entry, idx) => {
         if (currentY > pageHeight - margin - 120) {
           doc.addPage();
@@ -682,28 +684,37 @@
     ////////////////////////////////////////////////////////////////////////////
     // 12) CHANGE the current instance
     ////////////////////////////////////////////////////////////////////////////
-    instanceSelect.addEventListener('change', () => {
+    instanceSelect.addEventListener('change', async () => {
       currentInstance = instanceSelect.value;
-      refreshEntries();
+      // Wait for refresh (which ensures store creation, loads entries)
+      await refreshEntries();
     });
 
     // Add a new instance from user input
-    addInstanceBtn.addEventListener('click', () => {
+    addInstanceBtn.addEventListener('click', async () => {
       const name = newInstanceInput.value.trim();
       if (!name) {
         alert("Enter a valid instance name.");
         return;
       }
-      // Add to the <select>
-      const opt = document.createElement('option');
-      opt.value = name;
-      opt.textContent = name;
-      instanceSelect.appendChild(opt);
-      // Select the new instance
-      instanceSelect.value = name;
-      currentInstance = name;
-      newInstanceInput.value = '';
-      refreshEntries();
+      try {
+        // Add to the <select>
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        instanceSelect.appendChild(opt);
+
+        // Select the new instance
+        instanceSelect.value = name;
+        currentInstance = name;
+        newInstanceInput.value = '';
+
+        // Ensure store is created, load it
+        await refreshEntries();
+      } catch (err) {
+        console.error("Error adding instance:", err);
+        alert("Could not create instance. Check console for details.");
+      }
     });
 
     // Delete the currently selected instance
@@ -738,13 +749,14 @@
     ////////////////////////////////////////////////////////////////////////////
     // 13) On page load, open DB, but no default store. Wait for user to add instance
     ////////////////////////////////////////////////////////////////////////////
-    window.addEventListener('DOMContentLoaded', () => {
-      openDatabase()
-        .then(() => {
-          // No default instance. The user must pick or create one.
-          refreshEntries();
-        })
-        .catch(err => console.error("Failed to open DB:", err));
+    window.addEventListener('DOMContentLoaded', async () => {
+      try {
+        await openDatabase();
+        // No default instance => do nothing
+        // The user must add an instance, then we call refreshEntries()
+      } catch (err) {
+        console.error("Failed to open DB:", err);
+      }
     });
   </script>
 </body>
