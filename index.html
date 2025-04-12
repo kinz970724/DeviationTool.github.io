@@ -686,15 +686,13 @@
           };
           try {
             await addEntryToDB(newEntry);
-            // Clear search so newly added entries become visible
-            searchCodeInput.value = '';
-            await refreshEntries();
 
-            // Clear form fields
-            imageInput.value = '';
-            deviationInput.value = '';
-            criticalityInput.value = '';
-            remedialInput.value = '';
+            // *** REFRESH THE PAGE *** after adding the entry:
+            window.location.reload();
+
+            // (If you wanted to show entries without a full reload, 
+            // you'd call "refreshEntries()" here instead, 
+            // but you specifically asked to refresh the page.)
           } catch (err) {
             console.error("Error adding entry:", err);
           }
