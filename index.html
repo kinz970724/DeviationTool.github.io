@@ -2,33 +2,55 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Asset Deviation Tracker (Multi-Topic, Faster Topic Add)</title>
+  <title>Deviation Tracker</title>
   <!-- Make pages scale nicely on phones -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <!-- jsPDF from CDN for PDF generation -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
   <style>
-    /* Global styling with gradient background and emojis */
+    /* Global "app" styling */
     body {
       font-family: Arial, sans-serif;
       margin: 20px;
-      max-width: 1000px;
+      max-width: 1200px;
       margin-left: auto;
       margin-right: auto;
       background: linear-gradient(to bottom right, #f0f0f0, #ffffff);
     }
-    /* Add an emoji before the title */
-    h1:before {
-      content: "📸 ";
-    }
-    h1, h2 {
+    h1 {
       text-align: center;
       margin-top: 10px;
       margin-bottom: 10px;
     }
-    form, .buttons, .topics-area, .topics-filter {
-      margin: 20px 0;
+    /* Add a clipboard emoji to the main title */
+    h1:before {
+      content: "📋 ";
+    }
+    h2 {
       text-align: center;
+      margin-top: 10px;
+      margin-bottom: 10px;
+    }
+
+    /* Layout containers */
+    .flex-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      margin-bottom: 20px;
+      justify-content: space-between; /* Space between columns */
+    }
+    .column {
+      flex: 1 1 420px; /* Grows to fill, min 420px */
+      background-color: #fafafa;
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    form, .buttons, .sheets-filter {
+      margin: 15px 0;
     }
     label {
       display: block;
@@ -55,11 +77,12 @@
       padding: 8px 12px;
       font-size: 1rem;
       border-radius: 4px;
-      margin: 5px;
+      margin: 5px 0;
     }
     button:hover {
       background-color: #005fab;
     }
+
     /* Table styling */
     table {
       border-collapse: collapse;
@@ -68,6 +91,7 @@
       box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
       border-radius: 4px;
       overflow: hidden;
+      background-color: white;
     }
     table thead tr {
       background-color: #f7f7f7;
@@ -80,13 +104,14 @@
     th {
       background: #f9f9f9;
     }
-    /* Emoji icons in table headers */
+    /* A few emojis in table headers */
     th:nth-child(1)::before { content: "🔢 "; }
     th:nth-child(2)::before { content: "📸 "; }
     th:nth-child(3)::before { content: "❗ "; }
     th:nth-child(4)::before { content: "🛠️ "; }
     th:nth-child(5)::before { content: "⚠️ "; }
-    /* Hover effect for table rows */
+
+    /* Hover effect on table rows */
     tbody tr:hover {
       background-color: #fafafa;
     }
@@ -96,7 +121,8 @@
       display: block;
       margin: 0 auto;
     }
-    /* Responsive table for smaller screens */
+
+    /* Responsive table for small screens */
     @media (max-width: 600px) {
       table, thead, tbody, th, td, tr {
         display: block;
@@ -125,65 +151,70 @@
   </style>
 </head>
 <body>
-  <h1>Asset Deviation Tracker (Multi-Topic)</h1>
-  
-  <!-- ADD NEW DEVIATION FORM -->
-  <h2>Add a New Deviation</h2>
-  <form id="entryForm">
-    <!-- "Topic" (text input with datalist) -->
-    <label for="topicInput">Topic (Select or type new):</label>
-    <input type="text" id="topicInput" placeholder="Topic name..." list="topicSuggestions" required>
-    <datalist id="topicSuggestions"></datalist>
+  <h1>Deviation Tracker</h1>
 
-    <!-- Asset Code input with datalist -->
-    <label for="searchCodeInput">Asset Code (Search or type custom):</label>
-    <input type="text" id="searchCodeInput" placeholder="e.g. 131-CON-01..." list="codeSuggestions" />
-    <datalist id="codeSuggestions"></datalist>
+  <!-- Flex container for left column (Form) and right column (Search/Buttons) -->
+  <div class="flex-container">
+    <!-- ADD NEW DEVIATION FORM (Left Column) -->
+    <div class="column">
+      <h2>Add a New Deviation</h2>
+      <form id="entryForm">
+        <!-- "Sheet" selection or new -->
+        <label for="sheetInput">Sheet (Select or type new):</label>
+        <input type="text" id="sheetInput" placeholder="Sheet name..." list="sheetSuggestions" required>
+        <datalist id="sheetSuggestions"></datalist>
 
-    <!-- Photo -->
-    <label for="imageInput">Photo:</label>
-    <input type="file" id="imageInput" accept="image/*;capture=camera" required>
+        <!-- Asset Code (datalist from asset codes) -->
+        <label for="searchCodeInput">Asset Code (Search or type custom):</label>
+        <input type="text" id="searchCodeInput" placeholder="e.g. 131-CON-01..." list="codeSuggestions" />
+        <datalist id="codeSuggestions"></datalist>
 
-    <!-- Deviation -->
-    <label for="deviationInput">Deviation:</label>
-    <textarea id="deviationInput" rows="2" placeholder="Describe the deviation" required></textarea>
+        <!-- Photo/File input -->
+        <label for="imageInput">Photo:</label>
+        <input type="file" id="imageInput" accept="image/*;capture=camera" required>
 
-    <!-- Criticality -->
-    <label for="criticalityInput">Criticality:</label>
-    <select id="criticalityInput" required>
-      <option value="">Select Criticality</option>
-      <option value="Low">Low</option>
-      <option value="Medium">Medium</option>
-      <option value="High">High</option>
-    </select>
-    
-    <!-- Remedial Action -->
-    <label for="remedialInput">Remedial Action:</label>
-    <textarea id="remedialInput" rows="2" placeholder="e.g. Fix, Replace" required></textarea>
-    
-    <button type="submit">Add Entry</button>
-  </form>
+        <!-- Deviation Description -->
+        <label for="deviationInput">Deviation:</label>
+        <textarea id="deviationInput" rows="2" placeholder="Describe the deviation" required></textarea>
 
-  <!-- SEARCH & FILTER FOR THE TABLE -->
-  <h2>Search & Filter</h2>
-  <div class="topics-filter">
-    <label for="topicFilterSelect">Filter By Topic:</label>
-    <select id="topicFilterSelect">
-      <option value="">All Topics</option>
-      <!-- Populated from IndexedDB -->
-    </select>
-  </div>
+        <!-- Criticality -->
+        <label for="criticalityInput">Criticality:</label>
+        <select id="criticalityInput" required>
+          <option value="">Select Criticality</option>
+          <option value="Low">Low</option>
+          <option value="Medium">Medium</option>
+          <option value="High">High</option>
+        </select>
 
-  <!-- PDF/CSV/CLEAR BUTTONS -->
-  <div class="buttons">
-    <label for="pdfOrientation">PDF Orientation:</label>
-    <select id="pdfOrientation">
-      <option value="l">Landscape</option>
-      <option value="p">Portrait</option>
-    </select>
-    <button id="generatePdf">Generate PDF</button>
-    <button id="exportCsv">Export CSV (Coming Soon)</button>
-    <button id="clearAll">Clear All Entries</button>
+        <!-- Remedial Action -->
+        <label for="remedialInput">Remedial Action:</label>
+        <textarea id="remedialInput" rows="2" placeholder="e.g. Fix, Replace" required></textarea>
+
+        <button type="submit">Add Entry</button>
+      </form>
+    </div>
+
+    <!-- SEARCH & FILTER (Right Column) + PDF/CSV/CLEAR BUTTONS -->
+    <div class="column">
+      <h2>Search & Filter</h2>
+      <div class="sheets-filter">
+        <label for="sheetFilterSelect">Select Sheet:</label>
+        <select id="sheetFilterSelect">
+          <option value="">All Sheets</option>
+        </select>
+      </div>
+
+      <div class="buttons">
+        <label for="pdfOrientation">PDF Orientation:</label>
+        <select id="pdfOrientation">
+          <option value="l">Landscape</option>
+          <option value="p">Portrait</option>
+        </select>
+        <button id="generatePdf">Generate PDF</button>
+        <button id="exportCsv">Export CSV (Coming Soon)</button>
+        <button id="clearAll">Clear All Entries</button>
+      </div>
+    </div>
   </div>
 
   <!-- EXISTING ENTRIES TABLE -->
@@ -202,38 +233,38 @@
     <tbody></tbody>
   </table>
 
-  <!-- MANAGE TOPICS AT THE BOTTOM -->
-  <h2>Manage Topics</h2>
-  <div class="topics-area">
-    <table id="topicsTable">
+  <!-- MANAGE SHEETS -->
+  <h2>Manage Sheets</h2>
+  <div class="sheets-area">
+    <table id="sheetsTable">
       <thead>
         <tr>
-          <th>Topic Name</th>
+          <th>Sheet Name</th>
           <th>Actions</th>
         </tr>
       </thead>
-      <tbody><!-- Populated dynamically --></tbody>
+      <tbody><!-- Dynamically populated --></tbody>
     </table>
   </div>
 
-  <!-- SCRIPT BLOCK (UNCHANGED) -->
+  <!-- Main Script -->
   <script>
     document.addEventListener("DOMContentLoaded", () => {
       ////////////////////////////////////////////////////////////////////////////
-      // Constants and DB Setup
+      // DB Constants
       ////////////////////////////////////////////////////////////////////////////
-      const DB_NAME = 'DeviationsDB_MultiTopic';
-      const DB_VERSION = 3; // increment version for changes
+      const DB_NAME = 'DeviationTrackerDB';
+      const DB_VERSION = 4; // new version for "sheets" store
       const ENTRIES_STORE = 'entries';
-      const TOPICS_STORE = 'topics';
-      let db;
+      const SHEETS_STORE = 'sheets';
 
-      // We keep in-memory arrays for fast rendering:
+      let db;
+      // In-memory arrays for quick rendering
       let entries = [];
-      let topics = [];
+      let sheets = [];
 
       ////////////////////////////////////////////////////////////////////////////
-      // Open or Upgrade the DB with 2 stores: 'entries' and 'topics'
+      // Open/Upgrade IndexedDB
       ////////////////////////////////////////////////////////////////////////////
       function openDatabase() {
         return new Promise((resolve, reject) => {
@@ -244,13 +275,17 @@
           };
           request.onupgradeneeded = event => {
             db = event.target.result;
-            // Create entries store if not exists
+            // Create 'entries' store if it doesn't exist
             if (!db.objectStoreNames.contains(ENTRIES_STORE)) {
               db.createObjectStore(ENTRIES_STORE, { keyPath: 'id', autoIncrement: true });
             }
-            // Create topics store if not exists
-            if (!db.objectStoreNames.contains(TOPICS_STORE)) {
-              db.createObjectStore(TOPICS_STORE, { keyPath: 'id', autoIncrement: true });
+            // Create 'sheets' store if it doesn't exist
+            if (!db.objectStoreNames.contains(SHEETS_STORE)) {
+              db.createObjectStore(SHEETS_STORE, { keyPath: 'id', autoIncrement: true });
+            }
+            // If there's an old "topics" store, remove it:
+            if (db.objectStoreNames.contains('topics')) {
+              db.deleteObjectStore('topics');
             }
           };
           request.onsuccess = event => {
@@ -261,7 +296,7 @@
       }
 
       ////////////////////////////////////////////////////////////////////////////
-      // IndexedDB CRUD for ENTRIES
+      // CRUD for ENTRIES
       ////////////////////////////////////////////////////////////////////////////
       function getAllEntriesFromDB() {
         return new Promise((resolve, reject) => {
@@ -272,7 +307,6 @@
           request.onerror = event => reject(event.target.error);
         });
       }
-
       function addEntryToDB(entry) {
         return new Promise((resolve, reject) => {
           const transaction = db.transaction([ENTRIES_STORE], 'readwrite');
@@ -285,7 +319,6 @@
           request.onerror = event => reject(event.target.error);
         });
       }
-
       function updateEntryInDB(entry) {
         return new Promise((resolve, reject) => {
           const transaction = db.transaction([ENTRIES_STORE], 'readwrite');
@@ -295,7 +328,6 @@
           request.onerror = event => reject(event.target.error);
         });
       }
-
       function removeEntryFromDB(id) {
         return new Promise((resolve, reject) => {
           const transaction = db.transaction([ENTRIES_STORE], 'readwrite');
@@ -305,7 +337,6 @@
           request.onerror = event => reject(event.target.error);
         });
       }
-
       function clearAllEntriesFromDB() {
         return new Promise((resolve, reject) => {
           const transaction = db.transaction([ENTRIES_STORE], 'readwrite');
@@ -317,23 +348,22 @@
       }
 
       ////////////////////////////////////////////////////////////////////////////
-      // IndexedDB CRUD for TOPICS
+      // CRUD for SHEETS
       ////////////////////////////////////////////////////////////////////////////
-      function getAllTopicsFromDB() {
+      function getAllSheetsFromDB() {
         return new Promise((resolve, reject) => {
-          const transaction = db.transaction([TOPICS_STORE], 'readonly');
-          const store = transaction.objectStore(TOPICS_STORE);
+          const transaction = db.transaction([SHEETS_STORE], 'readonly');
+          const store = transaction.objectStore(SHEETS_STORE);
           const request = store.getAll();
           request.onsuccess = event => resolve(event.target.result);
           request.onerror = event => reject(event.target.error);
         });
       }
-
-      function addTopicToDB(topicName) {
+      function addSheetToDB(sheetName) {
         return new Promise((resolve, reject) => {
-          const transaction = db.transaction([TOPICS_STORE], 'readwrite');
-          const store = transaction.objectStore(TOPICS_STORE);
-          const data = { name: topicName };
+          const transaction = db.transaction([SHEETS_STORE], 'readwrite');
+          const store = transaction.objectStore(SHEETS_STORE);
+          const data = { name: sheetName };
           const request = store.add(data);
           request.onsuccess = event => {
             data.id = event.target.result;
@@ -342,47 +372,44 @@
           request.onerror = event => reject(event.target.error);
         });
       }
-
-      async function removeTopicFromDB(topicId) {
-        // 1) Remove the topic record itself
-        // 2) Remove all entries that belong to this topic
+      async function removeSheetFromDB(sheetId) {
         try {
-          // remove the topic
+          // Delete the sheet record
           await new Promise((resolve, reject) => {
-            const transaction = db.transaction([TOPICS_STORE], 'readwrite');
-            const store = transaction.objectStore(TOPICS_STORE);
-            const req = store.delete(topicId);
+            const transaction = db.transaction([SHEETS_STORE], 'readwrite');
+            const store = transaction.objectStore(SHEETS_STORE);
+            const req = store.delete(sheetId);
             req.onsuccess = () => resolve();
             req.onerror = ev => reject(ev.target.error);
           });
-          // remove all associated entries
-          const toRemove = entries.filter(e => e.topicId === topicId);
+          // Remove all entries associated with that sheet
+          const toRemove = entries.filter(e => e.sheetId === sheetId);
           for (const entry of toRemove) {
             await removeEntryFromDB(entry.id);
           }
         } catch (err) {
-          console.error("Error removing topic & associated entries:", err);
+          console.error("Error removing sheet & associated entries:", err);
         }
       }
 
       ////////////////////////////////////////////////////////////////////////////
-      // Refresh & Render Topics
+      // Refresh & Render Sheets
       ////////////////////////////////////////////////////////////////////////////
-      async function refreshTopics() {
-        topics = await getAllTopicsFromDB();
-        renderTopicsTable();   
-        updateTopicFilterSelect();
-        updateTopicSuggestions();
+      async function refreshSheets() {
+        sheets = await getAllSheetsFromDB();
+        renderSheetsTable();   
+        updateSheetFilterSelect();
+        updateSheetSuggestions();
       }
 
-      function renderTopicsTable() {
-        const topicsTableBody = document.querySelector('#topicsTable tbody');
-        topicsTableBody.innerHTML = '';
-        topics.forEach(topic => {
+      function renderSheetsTable() {
+        const sheetsTableBody = document.querySelector('#sheetsTable tbody');
+        sheetsTableBody.innerHTML = '';
+        sheets.forEach(sheet => {
           const row = document.createElement('tr');
-          // Topic name
+          // Sheet Name
           const nameTd = document.createElement('td');
-          nameTd.textContent = topic.name;
+          nameTd.textContent = sheet.name;
           row.appendChild(nameTd);
 
           // Actions
@@ -390,21 +417,22 @@
           const delBtn = document.createElement('button');
           delBtn.textContent = 'Delete';
           delBtn.onclick = async () => {
-            if (confirm(`Remove topic "${topic.name}" and all related entries?`)) {
-              await removeTopicFromDB(topic.id);
+            if (confirm(`Remove sheet "${sheet.name}" and all associated entries?`)) {
+              await removeSheetFromDB(sheet.id);
               await refreshEntries();
-              await refreshTopics();
+              await refreshSheets();
             }
           };
           actionsTd.appendChild(delBtn);
           row.appendChild(actionsTd);
 
-          topicsTableBody.appendChild(row);
+          sheetsTableBody.appendChild(row);
         });
       }
 
       ////////////////////////////////////////////////////////////////////////////
-      // 1) Load asset codes & store them in allCodes
+      // Optionally load asset codes from external file (assetCodes.txt)
+      // If you don't have such a file, remove this fetch call or handle errors.
       ////////////////////////////////////////////////////////////////////////////
       let allCodes = [];
       fetch('assetCodes.txt')
@@ -420,12 +448,12 @@
         .catch(err => console.error(err));
 
       ////////////////////////////////////////////////////////////////////////////
-      // 2) DOM elements
+      // DOM elements
       ////////////////////////////////////////////////////////////////////////////
       const searchCodeInput       = document.getElementById('searchCodeInput');
       const codeSuggestions       = document.getElementById('codeSuggestions');
-      const topicInput            = document.getElementById('topicInput');
-      const topicSuggestions      = document.getElementById('topicSuggestions');
+      const sheetInput            = document.getElementById('sheetInput');
+      const sheetSuggestions      = document.getElementById('sheetSuggestions');
       const entryForm             = document.getElementById('entryForm');
       const imageInput            = document.getElementById('imageInput');
       const deviationInput        = document.getElementById('deviationInput');
@@ -435,10 +463,10 @@
       const generatePdfButton     = document.getElementById('generatePdf');
       const clearAllButton        = document.getElementById('clearAll');
       const pdfOrientationSelect  = document.getElementById('pdfOrientation');
-      const topicFilterSelect     = document.getElementById('topicFilterSelect');
+      const sheetFilterSelect     = document.getElementById('sheetFilterSelect');
 
       ////////////////////////////////////////////////////////////////////////////
-      // 3) Debounce Helper (1 second delay)
+      // Debounce helper (to limit how often we handle input)
       ////////////////////////////////////////////////////////////////////////////
       function debounce(fn, delay) {
         let timeout;
@@ -449,13 +477,13 @@
       }
 
       ////////////////////////////////////////////////////////////////////////////
-      // 4) Update code <datalist> (limit suggestions)
+      // Update code <datalist> suggestions
       ////////////////////////////////////////////////////////////////////////////
       function updateCodeSuggestions() {
         codeSuggestions.innerHTML = '';
         const typed = searchCodeInput.value.trim().toLowerCase();
-        let matched = typed 
-          ? allCodes.filter(code => code.toLowerCase().includes(typed)) 
+        let matched = typed
+          ? allCodes.filter(code => code.toLowerCase().includes(typed))
           : allCodes;
         const MAX_SUGGESTIONS = 50;
         matched.slice(0, MAX_SUGGESTIONS).forEach(code => {
@@ -466,36 +494,37 @@
       }
 
       ////////////////////////////////////////////////////////////////////////////
-      // For TOPIC input (type or pick from existing). If user typed new, add it.
+      // Update "Sheet" suggestions
       ////////////////////////////////////////////////////////////////////////////
-      function updateTopicSuggestions() {
-        topicSuggestions.innerHTML = '';
-        topics.forEach(t => {
+      function updateSheetSuggestions() {
+        sheetSuggestions.innerHTML = '';
+        sheets.forEach(s => {
           const opt = document.createElement('option');
-          opt.value = t.name;
-          topicSuggestions.appendChild(opt);
+          opt.value = s.name;
+          sheetSuggestions.appendChild(opt);
         });
       }
 
       ////////////////////////////////////////////////////////////////////////////
-      // 5) Render ENTRIES table (with filter by code & topic)
+      // Render Entries table (filter by code text + selected sheet)
       ////////////////////////////////////////////////////////////////////////////
       function renderEntries() {
         entriesTableBody.innerHTML = '';
+
         const filterText = searchCodeInput.value.trim().toLowerCase();
-        const selectedTopicId = parseInt(topicFilterSelect.value) || null; // or null if "All"
+        const selectedSheetId = parseInt(sheetFilterSelect.value) || null; // null => show all
 
         // 1) Filter by asset code text
         let rowsToShow = filterText
           ? entries.filter(e => e.assetCode.toLowerCase().includes(filterText))
           : entries;
 
-        // 2) Filter by topic if a topic is selected
-        if (selectedTopicId) {
-          rowsToShow = rowsToShow.filter(e => e.topicId === selectedTopicId);
+        // 2) Filter by sheet if selected
+        if (selectedSheetId) {
+          rowsToShow = rowsToShow.filter(e => e.sheetId === selectedSheetId);
         }
 
-        // 3) Limit to 50 rows
+        // Show top 50 for brevity
         rowsToShow = rowsToShow.slice(0, 50);
 
         rowsToShow.forEach(entry => {
@@ -519,7 +548,7 @@
           const photoTd = document.createElement('td');
           photoTd.setAttribute('data-label', 'Photo');
           const img = document.createElement('img');
-          img.src = entry.image;
+          img.src = entry.image; // Base64
           photoTd.appendChild(img);
           row.appendChild(photoTd);
 
@@ -538,8 +567,8 @@
           row.appendChild(deviationTd);
 
           // Remedial Action
-          const remTd = document.createElement('td');
-          remTd.setAttribute('data-label', 'Remedial Action');
+          const remedTd = document.createElement('td');
+          remedTd.setAttribute('data-label', 'Remedial Action');
           const remArea = document.createElement('textarea');
           remArea.value = entry.remedial;
           remArea.rows = 2;
@@ -548,8 +577,8 @@
             entry.remedial = remArea.value;
             updateEntryInDB(entry).catch(err => console.error("Error updating entry:", err));
           };
-          remTd.appendChild(remArea);
-          row.appendChild(remTd);
+          remedTd.appendChild(remArea);
+          row.appendChild(remedTd);
 
           // Criticality
           const criticalityTd = document.createElement('td');
@@ -594,7 +623,7 @@
       }
 
       ////////////////////////////////////////////////////////////////////////////
-      // 6) Add new entry form logic
+      // Add new entry form submission
       ////////////////////////////////////////////////////////////////////////////
       entryForm.addEventListener('submit', async e => {
         e.preventDefault();
@@ -604,10 +633,10 @@
         const deviation = deviationInput.value.trim();
         const criticality = criticalityInput.value.trim();
         const remedial = remedialInput.value.trim();
-        const typedTopicName = topicInput.value.trim();
+        const typedSheetName = sheetInput.value.trim();
 
-        if (!typedTopicName) {
-          alert('Please specify a Topic name.');
+        if (!typedSheetName) {
+          alert('Please specify a Sheet name.');
           return;
         }
         if (!code) {
@@ -623,28 +652,26 @@
           return;
         }
 
-        // Check if this typed topic already exists (case-insensitive)
-        let matchingTopic = topics.find(
-          t => t.name.toLowerCase() === typedTopicName.toLowerCase()
+        // Check if the typed sheet already exists
+        let matchingSheet = sheets.find(
+          s => s.name.toLowerCase() === typedSheetName.toLowerCase()
         );
 
-        // If not found, create it:
-        if (!matchingTopic) {
+        // If not found, create it
+        if (!matchingSheet) {
           try {
-            matchingTopic = await addTopicToDB(typedTopicName);
-            // Also push into our in-memory array
-            topics.push(matchingTopic);
-            // Re-render topic suggestions and table
-            updateTopicSuggestions();
-            renderTopicsTable();
-            updateTopicFilterSelect();
+            matchingSheet = await addSheetToDB(typedSheetName);
+            sheets.push(matchingSheet);
+            updateSheetSuggestions();
+            renderSheetsTable();
+            updateSheetFilterSelect();
           } catch (err) {
-            console.error("Error creating new topic:", err);
+            console.error("Error creating new sheet:", err);
             return;
           }
         }
 
-        // Convert photo file -> base64
+        // Convert photo file to base64
         const reader = new FileReader();
         reader.onload = async function(evt) {
           const imageData = evt.target.result;
@@ -654,12 +681,15 @@
             deviation: deviation,
             remedial: remedial,
             criticality: criticality,
-            topicId: matchingTopic.id, // link to the newly found or created topic
+            sheetId: matchingSheet.id,
             timestamp: Date.now()
           };
           try {
             await addEntryToDB(newEntry);
+            // Clear search so newly added entries become visible
+            searchCodeInput.value = '';
             await refreshEntries();
+
             // Clear form fields
             imageInput.value = '';
             deviationInput.value = '';
@@ -673,16 +703,16 @@
       });
 
       ////////////////////////////////////////////////////////////////////////////
-      // 7) Debounced search for code suggestions & re-render table
+      // Debounced search triggers
       ////////////////////////////////////////////////////////////////////////////
       const handleSearch = debounce(() => {
         updateCodeSuggestions();
         renderEntries();
-      }, 1000);
+      }, 800);
       searchCodeInput.addEventListener('input', handleSearch);
 
       ////////////////////////////////////////////////////////////////////////////
-      // 8) PDF Generation
+      // PDF Generation
       ////////////////////////////////////////////////////////////////////////////
       generatePdfButton.addEventListener('click', () => {
         const { jsPDF } = window.jspdf;
@@ -703,7 +733,6 @@
         const rowHeight = 130;
         const headerHeight = 30;
 
-        // Draw table header
         function drawTableHeader() {
           drawRowBorder(currentY, headerHeight);
           doc.setFontSize(12);
@@ -714,7 +743,6 @@
           doc.text('Criticality', startX + colAssetW + colPhotoW + colDeviationW + colRemedialW + 5, currentY + 18);
           currentY += headerHeight;
         }
-
         function drawRowBorder(y, height) {
           doc.line(startX, y, startX + tableW, y);
           doc.line(startX, y + height, startX + tableW, y + height);
@@ -731,15 +759,16 @@
         currentY += 10;
         drawTableHeader();
 
-        // Filter entries just like the table
+        // Filter the same way we do on screen
         const filterText = searchCodeInput.value.trim().toLowerCase();
-        const selectedTopicId = parseInt(topicFilterSelect.value) || null;
+        const selectedSheetId = parseInt(sheetFilterSelect.value) || null;
 
         let pdfEntries = filterText
           ? entries.filter(e => e.assetCode.toLowerCase().includes(filterText))
           : entries;
-        if (selectedTopicId) {
-          pdfEntries = pdfEntries.filter(e => e.topicId === selectedTopicId);
+
+        if (selectedSheetId) {
+          pdfEntries = pdfEntries.filter(e => e.sheetId === selectedSheetId);
         }
 
         pdfEntries.forEach(entry => {
@@ -805,7 +834,7 @@
       });
 
       ////////////////////////////////////////////////////////////////////////////
-      // 9) Clear All Entries functionality
+      // Clear All Entries
       ////////////////////////////////////////////////////////////////////////////
       clearAllButton.addEventListener('click', async () => {
         if (confirm("Are you sure you want to clear all entries? This action cannot be undone.")) {
@@ -819,33 +848,32 @@
       });
 
       ////////////////////////////////////////////////////////////////////////////
-      // 10) Filter by topic
+      // Filter by sheet
       ////////////////////////////////////////////////////////////////////////////
-      topicFilterSelect.addEventListener('change', renderEntries);
+      sheetFilterSelect.addEventListener('change', renderEntries);
 
-      // Update the "Filter By Topic" <select>
-      function updateTopicFilterSelect() {
-        topicFilterSelect.innerHTML = '<option value="">All Topics</option>';
-        topics.forEach(topic => {
+      function updateSheetFilterSelect() {
+        sheetFilterSelect.innerHTML = '<option value="">All Sheets</option>';
+        sheets.forEach(sheet => {
           const opt = document.createElement('option');
-          opt.value = topic.id;
-          opt.textContent = topic.name;
-          topicFilterSelect.appendChild(opt);
+          opt.value = sheet.id;
+          opt.textContent = sheet.name;
+          sheetFilterSelect.appendChild(opt);
         });
       }
 
       ////////////////////////////////////////////////////////////////////////////
-      // 11) On load: open DB, refresh topics & entries
+      // On page load: open DB, then fetch & display sheets and entries
       ////////////////////////////////////////////////////////////////////////////
       openDatabase()
         .then(async () => {
-          await refreshTopics();
+          await refreshSheets();
           await refreshEntries();
         })
         .catch(err => console.error("Failed to open database:", err));
 
       ////////////////////////////////////////////////////////////////////////////
-      // 12) Code searching/typing triggers table re-render
+      // Also handle immediate re-render on search input
       ////////////////////////////////////////////////////////////////////////////
       searchCodeInput.addEventListener('input', handleSearch);
     });
