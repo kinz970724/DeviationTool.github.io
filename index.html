@@ -214,6 +214,7 @@
           <option value="p">Portrait</option>
         </select>
         <button id="generatePdf">Generate PDF</button>
+        <!-- Removed CSV export completely -->
         <button id="exportExcelImages">Export Excel (With Embedded Images)</button>
         <button id="clearAll">Clear All Entries</button>
       </div>
@@ -552,7 +553,7 @@
           const photoTd = document.createElement('td');
           photoTd.setAttribute('data-label', 'Photo');
           const img = document.createElement('img');
-          img.src = entry.image; // Base64
+          img.src = entry.image; // Base64 data URL
           photoTd.appendChild(img);
           row.appendChild(photoTd);
 
@@ -678,7 +679,7 @@
         // Convert photo file to base64
         const reader = new FileReader();
         reader.onload = async function(evt) {
-          const imageData = evt.target.result;
+          const imageData = evt.target.result; // e.g. "data:image/png;base64,iVBOR..."
           const newEntry = {
             assetCode: code,
             image: imageData,
@@ -690,11 +691,7 @@
           };
           try {
             await addEntryToDB(newEntry);
-
-            // *** REFRESH THE PAGE *** after adding the entry:
             window.location.reload();
-
-            // (If you wanted to skip the reload, you could call refreshEntries() instead.)
           } catch (err) {
             console.error("Error adding entry:", err);
           }
@@ -897,35 +894,43 @@
           });
 
           // 3) Loop through each entry & place data in row i
-          //    We'll embed the actual image in column E (or near it).
           for (let i = 0; i < excelEntries.length; i++) {
             const entry = excelEntries[i];
-            // rowIndex = i + 2 because row 1 is header
+            // rowIndex = i + 2 (row 1 is header)
             const rowIndex = i + 2;
 
+            // Write text data
             sheet.cell(`A${rowIndex}`).value(entry.assetCode);
             sheet.cell(`B${rowIndex}`).value(entry.deviation);
             sheet.cell(`C${rowIndex}`).value(entry.remedial);
             sheet.cell(`D${rowIndex}`).value(entry.criticality);
-            sheet.cell(`E${rowIndex}`).value("(See embedded image)");
+            // Leave "E" blank so there's no placeholder text
+            sheet.cell(`E${rowIndex}`).value("");
 
-            // Increase row height to accommodate an image
-            sheet.row(rowIndex).height(100); // adjust as needed
+            // Increase row height if needed
+            sheet.row(rowIndex).height(100);
 
-            // 4) Add image
-            try {
-              sheet.addImage(entry.image, {
-                row: rowIndex,
-                col: 5,           // E is col 5
-                width: 100,       // px
-                height: 100       // px
-              });
-            } catch (imgErr) {
-              console.warn("Could not embed image for row " + rowIndex, imgErr);
+            // 4) xlsx-populate requires raw base64 data + extension
+            const dataUrl = entry.image; // e.g. "data:image/png;base64,iVBORw0K..."
+            let extension = 'png';
+            if (dataUrl.includes('image/jpeg') || dataUrl.includes('image/jpg')) {
+              extension = 'jpeg';
             }
+            // remove the prefix "data:image/xxx;base64,"
+            const base64Data = dataUrl.split(',')[1];
+
+            // 5) Add the image
+            sheet.addImage({
+              base64: base64Data,
+              extension: extension,
+              row: rowIndex,
+              col: 5,   // E
+              width: 100,
+              height: 100
+            });
           }
 
-          // 5) Output the workbook to a Blob and prompt download
+          // 6) Output the workbook to a Blob and prompt download
           const blob = await workbook.outputAsync();
           const url = URL.createObjectURL(blob);
 
