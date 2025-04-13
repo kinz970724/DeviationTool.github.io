@@ -2,12 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Deviation Tracker</title>
+  <title>Deviation Tracker with Embedded Excel Images</title>
   <!-- Make pages scale nicely on phones -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <!-- jsPDF from CDN for PDF generation -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-
+  
+  <!-- xlsx-populate for generating Excel with embedded images -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx-populate/browser/xlsx-populate.min.js"></script>
+  
   <style>
     /* Global "app" styling */
     body {
@@ -194,7 +197,7 @@
       </form>
     </div>
 
-    <!-- SEARCH & FILTER (Right Column) + PDF/CSV/CLEAR BUTTONS -->
+    <!-- SEARCH & FILTER (Right Column) + PDF/CSV/CLEAR/EXCEL BUTTONS -->
     <div class="column">
       <h2>Search & Filter</h2>
       <div class="sheets-filter">
@@ -212,6 +215,7 @@
         </select>
         <button id="generatePdf">Generate PDF</button>
         <button id="exportCsv">Export CSV (Coming Soon)</button>
+        <button id="exportExcelImages">Export Excel (With Embedded Images)</button>
         <button id="clearAll">Clear All Entries</button>
       </div>
     </div>
@@ -431,8 +435,8 @@
       }
 
       ////////////////////////////////////////////////////////////////////////////
-      // Optionally load asset codes from external file (assetCodes.txt)
-      // If you don't have such a file, remove this fetch call or handle errors.
+      // Optionally load asset codes from external file (assetCodes.txt).
+      // If you don't have such a file or it fails, handle gracefully.
       ////////////////////////////////////////////////////////////////////////////
       let allCodes = [];
       fetch('assetCodes.txt')
@@ -445,7 +449,7 @@
         .then(data => {
           allCodes = data.split('\n').map(line => line.trim()).filter(line => line !== '');
         })
-        .catch(err => console.error(err));
+        .catch(err => console.error("Optional assetCodes.txt load error:", err));
 
       ////////////////////////////////////////////////////////////////////////////
       // DOM elements
@@ -464,6 +468,8 @@
       const clearAllButton        = document.getElementById('clearAll');
       const pdfOrientationSelect  = document.getElementById('pdfOrientation');
       const sheetFilterSelect     = document.getElementById('sheetFilterSelect');
+      const exportExcelImagesBtn  = document.getElementById('exportExcelImages');
+      // CSV Export is "Coming soon" in your code, so we won't handle that here.
 
       ////////////////////////////////////////////////////////////////////////////
       // Debounce helper (to limit how often we handle input)
@@ -690,9 +696,7 @@
             // *** REFRESH THE PAGE *** after adding the entry:
             window.location.reload();
 
-            // (If you wanted to show entries without a full reload, 
-            // you'd call "refreshEntries()" here instead, 
-            // but you specifically asked to refresh the page.)
+            // (If you wanted to skip the reload, you could call refreshEntries() instead.)
           } catch (err) {
             console.error("Error adding entry:", err);
           }
@@ -859,6 +863,92 @@
           sheetFilterSelect.appendChild(opt);
         });
       }
+
+      ////////////////////////////////////////////////////////////////////////////
+      // "Export to Excel (With Embedded Images)" button logic using xlsx-populate
+      ////////////////////////////////////////////////////////////////////////////
+      exportExcelImagesBtn.addEventListener('click', async () => {
+        try {
+          // 1) Filter entries the same way we do for PDF
+          const filterText = searchCodeInput.value.trim().toLowerCase();
+          const selectedSheetId = parseInt(sheetFilterSelect.value) || null;
+
+          let excelEntries = filterText
+            ? entries.filter(e => e.assetCode.toLowerCase().includes(filterText))
+            : entries;
+
+          if (selectedSheetId) {
+            excelEntries = excelEntries.filter(e => e.sheetId === selectedSheetId);
+          }
+
+          // 2) Create a new blank workbook using xlsx-populate
+          const workbook = await XlsxPopulate.fromBlankAsync();
+          const sheet = workbook.sheet(0);
+          sheet.name("Deviations");
+
+          // Let's set up some column headers in row 1
+          sheet.cell("A1").value("Asset Code");
+          sheet.cell("B1").value("Deviation");
+          sheet.cell("C1").value("Remedial");
+          sheet.cell("D1").value("Criticality");
+          sheet.cell("E1").value("Photo");
+
+          // Make header row bold
+          ["A1","B1","C1","D1","E1"].forEach(cell => {
+            sheet.cell(cell).style({ bold: true });
+          });
+
+          // 3) Loop through each entry & place data in row i
+          //    We'll embed the actual image in column E (or near it).
+          for (let i = 0; i < excelEntries.length; i++) {
+            const entry = excelEntries[i];
+            // rowIndex = i + 2 because row 1 is header
+            const rowIndex = i + 2;
+
+            sheet.cell(`A${rowIndex}`).value(entry.assetCode);
+            sheet.cell(`B${rowIndex}`).value(entry.deviation);
+            sheet.cell(`C${rowIndex}`).value(entry.remedial);
+            sheet.cell(`D${rowIndex}`).value(entry.criticality);
+            sheet.cell(`E${rowIndex}`).value("(See embedded image)");
+
+            // Increase row height to accommodate an image
+            sheet.row(rowIndex).height(100); // adjust as needed
+
+            // 4) Add image
+            //    xlsx-populate 1.21+ can do: sheet.addImage(base64, { ...options })
+            //    The docs let you specify a range or { row, col, width, height, etc. }
+            try {
+              // We specify "Base64" string (entry.image) which is "data:image/...base64..."
+              // We'll anchor it so it fits into row "rowIndex" near column E.
+              // This is basic anchor logic – you may want to adjust col/row offsets.
+              sheet.addImage(entry.image, {
+                // anchorType: 'absolute', // (some versions require specifying)
+                row: rowIndex,
+                col: 5,           // E is col 5
+                width: 100,       // px
+                height: 100       // px
+              });
+            } catch (imgErr) {
+              console.warn("Could not embed image for row " + rowIndex, imgErr);
+            }
+          }
+
+          // 5) Output the workbook to a Blob and prompt download
+          const blob = await workbook.outputAsync();
+          const url = URL.createObjectURL(blob);
+
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "DeviationTrackerWithImages.xlsx";
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        } catch (err) {
+          console.error("Excel export error:", err);
+          alert("Failed to export Excel. See console for details.");
+        }
+      });
 
       ////////////////////////////////////////////////////////////////////////////
       // On page load: open DB, then fetch & display sheets and entries
