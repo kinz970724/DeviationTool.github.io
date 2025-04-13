@@ -2,13 +2,16 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Deviation Tracker with Embedded Excel Images</title>
+  <title>Deviation Tracker with Embedded Excel Images (Full Implementation)</title>
   <!-- Make pages scale nicely on phones -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  
   <!-- jsPDF from CDN for PDF generation -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   
-  <!-- xlsx-populate for generating Excel with embedded images -->
+  <!-- xlsx-populate for generating Excel with embedded images 
+       IMPORTANT: Must be a version that supports "sheet.addImage(...)"
+  -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx-populate/browser/xlsx-populate.min.js"></script>
   
   <style>
@@ -214,7 +217,7 @@
           <option value="p">Portrait</option>
         </select>
         <button id="generatePdf">Generate PDF</button>
-        <!-- Removed CSV export completely -->
+        <!-- CSV export removed entirely -->
         <button id="exportExcelImages">Export Excel (With Embedded Images)</button>
         <button id="clearAll">Clear All Entries</button>
       </div>
@@ -253,714 +256,728 @@
 
   <!-- Main Script -->
   <script>
-    document.addEventListener("DOMContentLoaded", () => {
-      ////////////////////////////////////////////////////////////////////////////
-      // DB Constants
-      ////////////////////////////////////////////////////////////////////////////
-      const DB_NAME = 'DeviationTrackerDB';
-      const DB_VERSION = 4; // new version for "sheets" store
-      const ENTRIES_STORE = 'entries';
-      const SHEETS_STORE = 'sheets';
+    ////////////////////////////////////////////////////////////////////////////
+    // DB Constants
+    ////////////////////////////////////////////////////////////////////////////
+    const DB_NAME = 'DeviationTrackerDB';
+    const DB_VERSION = 4; // new version for "sheets" store
+    const ENTRIES_STORE = 'entries';
+    const SHEETS_STORE = 'sheets';
 
-      let db;
-      // In-memory arrays for quick rendering
-      let entries = [];
-      let sheets = [];
+    let db;
+    // In-memory arrays for quick rendering
+    let entries = [];
+    let sheets = [];
 
-      ////////////////////////////////////////////////////////////////////////////
-      // Open/Upgrade IndexedDB
-      ////////////////////////////////////////////////////////////////////////////
-      function openDatabase() {
-        return new Promise((resolve, reject) => {
-          const request = indexedDB.open(DB_NAME, DB_VERSION);
-          request.onerror = event => {
-            console.error("Database error:", event.target.error);
-            reject(event.target.error);
-          };
-          request.onupgradeneeded = event => {
-            db = event.target.result;
-            // Create 'entries' store if it doesn't exist
-            if (!db.objectStoreNames.contains(ENTRIES_STORE)) {
-              db.createObjectStore(ENTRIES_STORE, { keyPath: 'id', autoIncrement: true });
-            }
-            // Create 'sheets' store if it doesn't exist
-            if (!db.objectStoreNames.contains(SHEETS_STORE)) {
-              db.createObjectStore(SHEETS_STORE, { keyPath: 'id', autoIncrement: true });
-            }
-            // If there's an old "topics" store, remove it:
-            if (db.objectStoreNames.contains('topics')) {
-              db.deleteObjectStore('topics');
-            }
-          };
-          request.onsuccess = event => {
-            db = event.target.result;
-            resolve(db);
-          };
-        });
-      }
+    ////////////////////////////////////////////////////////////////////////////
+    // Open/Upgrade IndexedDB
+    ////////////////////////////////////////////////////////////////////////////
+    function openDatabase() {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
+        request.onerror = event => {
+          console.error("Database error:", event.target.error);
+          reject(event.target.error);
+        };
+        request.onupgradeneeded = event => {
+          db = event.target.result;
+          // Create 'entries' store if it doesn't exist
+          if (!db.objectStoreNames.contains(ENTRIES_STORE)) {
+            db.createObjectStore(ENTRIES_STORE, { keyPath: 'id', autoIncrement: true });
+          }
+          // Create 'sheets' store if it doesn't exist
+          if (!db.objectStoreNames.contains(SHEETS_STORE)) {
+            db.createObjectStore(SHEETS_STORE, { keyPath: 'id', autoIncrement: true });
+          }
+          // If there's an old "topics" store, remove it:
+          if (db.objectStoreNames.contains('topics')) {
+            db.deleteObjectStore('topics');
+          }
+        };
+        request.onsuccess = event => {
+          db = event.target.result;
+          resolve(db);
+        };
+      });
+    }
 
-      ////////////////////////////////////////////////////////////////////////////
-      // CRUD for ENTRIES
-      ////////////////////////////////////////////////////////////////////////////
-      function getAllEntriesFromDB() {
-        return new Promise((resolve, reject) => {
-          const transaction = db.transaction([ENTRIES_STORE], 'readonly');
-          const store = transaction.objectStore(ENTRIES_STORE);
-          const request = store.getAll();
-          request.onsuccess = event => resolve(event.target.result);
-          request.onerror = event => reject(event.target.error);
-        });
-      }
-      function addEntryToDB(entry) {
-        return new Promise((resolve, reject) => {
-          const transaction = db.transaction([ENTRIES_STORE], 'readwrite');
-          const store = transaction.objectStore(ENTRIES_STORE);
-          const request = store.add(entry);
-          request.onsuccess = event => {
-            entry.id = event.target.result;
-            resolve(entry);
-          };
-          request.onerror = event => reject(event.target.error);
-        });
-      }
-      function updateEntryInDB(entry) {
-        return new Promise((resolve, reject) => {
-          const transaction = db.transaction([ENTRIES_STORE], 'readwrite');
-          const store = transaction.objectStore(ENTRIES_STORE);
-          const request = store.put(entry);
-          request.onsuccess = () => resolve();
-          request.onerror = event => reject(event.target.error);
-        });
-      }
-      function removeEntryFromDB(id) {
-        return new Promise((resolve, reject) => {
-          const transaction = db.transaction([ENTRIES_STORE], 'readwrite');
-          const store = transaction.objectStore(ENTRIES_STORE);
-          const request = store.delete(id);
-          request.onsuccess = () => resolve();
-          request.onerror = event => reject(event.target.error);
-        });
-      }
-      function clearAllEntriesFromDB() {
-        return new Promise((resolve, reject) => {
-          const transaction = db.transaction([ENTRIES_STORE], 'readwrite');
-          const store = transaction.objectStore(ENTRIES_STORE);
-          const request = store.clear();
-          request.onsuccess = () => resolve();
-          request.onerror = event => reject(event.target.error);
-        });
-      }
+    ////////////////////////////////////////////////////////////////////////////
+    // CRUD for ENTRIES
+    ////////////////////////////////////////////////////////////////////////////
+    function getAllEntriesFromDB() {
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction([ENTRIES_STORE], 'readonly');
+        const store = transaction.objectStore(ENTRIES_STORE);
+        const request = store.getAll();
+        request.onsuccess = event => resolve(event.target.result);
+        request.onerror = event => reject(event.target.error);
+      });
+    }
+    function addEntryToDB(entry) {
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction([ENTRIES_STORE], 'readwrite');
+        const store = transaction.objectStore(ENTRIES_STORE);
+        const request = store.add(entry);
+        request.onsuccess = event => {
+          entry.id = event.target.result;
+          resolve(entry);
+        };
+        request.onerror = event => reject(event.target.error);
+      });
+    }
+    function updateEntryInDB(entry) {
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction([ENTRIES_STORE], 'readwrite');
+        const store = transaction.objectStore(ENTRIES_STORE);
+        const request = store.put(entry);
+        request.onsuccess = () => resolve();
+        request.onerror = event => reject(event.target.error);
+      });
+    }
+    function removeEntryFromDB(id) {
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction([ENTRIES_STORE], 'readwrite');
+        const store = transaction.objectStore(ENTRIES_STORE);
+        const request = store.delete(id);
+        request.onsuccess = () => resolve();
+        request.onerror = event => reject(event.target.error);
+      });
+    }
+    function clearAllEntriesFromDB() {
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction([ENTRIES_STORE], 'readwrite');
+        const store = transaction.objectStore(ENTRIES_STORE);
+        const request = store.clear();
+        request.onsuccess = () => resolve();
+        request.onerror = event => reject(event.target.error);
+      });
+    }
 
-      ////////////////////////////////////////////////////////////////////////////
-      // CRUD for SHEETS
-      ////////////////////////////////////////////////////////////////////////////
-      function getAllSheetsFromDB() {
-        return new Promise((resolve, reject) => {
-          const transaction = db.transaction([SHEETS_STORE], 'readonly');
-          const store = transaction.objectStore(SHEETS_STORE);
-          const request = store.getAll();
-          request.onsuccess = event => resolve(event.target.result);
-          request.onerror = event => reject(event.target.error);
-        });
-      }
-      function addSheetToDB(sheetName) {
-        return new Promise((resolve, reject) => {
+    ////////////////////////////////////////////////////////////////////////////
+    // CRUD for SHEETS
+    ////////////////////////////////////////////////////////////////////////////
+    function getAllSheetsFromDB() {
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction([SHEETS_STORE], 'readonly');
+        const store = transaction.objectStore(SHEETS_STORE);
+        const request = store.getAll();
+        request.onsuccess = event => resolve(event.target.result);
+        request.onerror = event => reject(event.target.error);
+      });
+    }
+    function addSheetToDB(sheetName) {
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction([SHEETS_STORE], 'readwrite');
+        const store = transaction.objectStore(SHEETS_STORE);
+        const data = { name: sheetName };
+        const request = store.add(data);
+        request.onsuccess = event => {
+          data.id = event.target.result;
+          resolve(data);
+        };
+        request.onerror = event => reject(event.target.error);
+      });
+    }
+    async function removeSheetFromDB(sheetId) {
+      try {
+        // Delete the sheet record
+        await new Promise((resolve, reject) => {
           const transaction = db.transaction([SHEETS_STORE], 'readwrite');
           const store = transaction.objectStore(SHEETS_STORE);
-          const data = { name: sheetName };
-          const request = store.add(data);
-          request.onsuccess = event => {
-            data.id = event.target.result;
-            resolve(data);
-          };
-          request.onerror = event => reject(event.target.error);
+          const req = store.delete(sheetId);
+          req.onsuccess = () => resolve();
+          req.onerror = ev => reject(ev.target.error);
         });
-      }
-      async function removeSheetFromDB(sheetId) {
-        try {
-          // Delete the sheet record
-          await new Promise((resolve, reject) => {
-            const transaction = db.transaction([SHEETS_STORE], 'readwrite');
-            const store = transaction.objectStore(SHEETS_STORE);
-            const req = store.delete(sheetId);
-            req.onsuccess = () => resolve();
-            req.onerror = ev => reject(ev.target.error);
-          });
-          // Remove all entries associated with that sheet
-          const toRemove = entries.filter(e => e.sheetId === sheetId);
-          for (const entry of toRemove) {
-            await removeEntryFromDB(entry.id);
-          }
-        } catch (err) {
-          console.error("Error removing sheet & associated entries:", err);
+        // Remove all entries associated with that sheet
+        const toRemove = entries.filter(e => e.sheetId === sheetId);
+        for (const entry of toRemove) {
+          await removeEntryFromDB(entry.id);
         }
+      } catch (err) {
+        console.error("Error removing sheet & associated entries:", err);
       }
+    }
 
-      ////////////////////////////////////////////////////////////////////////////
-      // Refresh & Render Sheets
-      ////////////////////////////////////////////////////////////////////////////
-      async function refreshSheets() {
-        sheets = await getAllSheetsFromDB();
-        renderSheetsTable();   
-        updateSheetFilterSelect();
-        updateSheetSuggestions();
-      }
+    ////////////////////////////////////////////////////////////////////////////
+    // Refresh & Render Sheets
+    ////////////////////////////////////////////////////////////////////////////
+    async function refreshSheets() {
+      sheets = await getAllSheetsFromDB();
+      renderSheetsTable();   
+      updateSheetFilterSelect();
+      updateSheetSuggestions();
+    }
 
-      function renderSheetsTable() {
-        const sheetsTableBody = document.querySelector('#sheetsTable tbody');
-        sheetsTableBody.innerHTML = '';
-        sheets.forEach(sheet => {
-          const row = document.createElement('tr');
-          // Sheet Name
-          const nameTd = document.createElement('td');
-          nameTd.textContent = sheet.name;
-          row.appendChild(nameTd);
+    function renderSheetsTable() {
+      const sheetsTableBody = document.querySelector('#sheetsTable tbody');
+      sheetsTableBody.innerHTML = '';
+      sheets.forEach(sheet => {
+        const row = document.createElement('tr');
+        // Sheet Name
+        const nameTd = document.createElement('td');
+        nameTd.textContent = sheet.name;
+        row.appendChild(nameTd);
 
-          // Actions
-          const actionsTd = document.createElement('td');
-          const delBtn = document.createElement('button');
-          delBtn.textContent = 'Delete';
-          delBtn.onclick = async () => {
-            if (confirm(`Remove sheet "${sheet.name}" and all associated entries?`)) {
-              await removeSheetFromDB(sheet.id);
-              await refreshEntries();
-              await refreshSheets();
-            }
-          };
-          actionsTd.appendChild(delBtn);
-          row.appendChild(actionsTd);
-
-          sheetsTableBody.appendChild(row);
-        });
-      }
-
-      ////////////////////////////////////////////////////////////////////////////
-      // Optionally load asset codes from external file (assetCodes.txt).
-      // If you don't have such a file or it fails, handle gracefully.
-      ////////////////////////////////////////////////////////////////////////////
-      let allCodes = [];
-      fetch('assetCodes.txt')
-        .then(res => {
-          if (!res.ok) {
-            throw new Error('Could not load assetCodes.txt');
-          }
-          return res.text();
-        })
-        .then(data => {
-          allCodes = data.split('\n').map(line => line.trim()).filter(line => line !== '');
-        })
-        .catch(err => console.error("Optional assetCodes.txt load error:", err));
-
-      ////////////////////////////////////////////////////////////////////////////
-      // DOM elements
-      ////////////////////////////////////////////////////////////////////////////
-      const searchCodeInput       = document.getElementById('searchCodeInput');
-      const codeSuggestions       = document.getElementById('codeSuggestions');
-      const sheetInput            = document.getElementById('sheetInput');
-      const sheetSuggestions      = document.getElementById('sheetSuggestions');
-      const entryForm             = document.getElementById('entryForm');
-      const imageInput            = document.getElementById('imageInput');
-      const deviationInput        = document.getElementById('deviationInput');
-      const criticalityInput      = document.getElementById('criticalityInput');
-      const remedialInput         = document.getElementById('remedialInput');
-      const entriesTableBody      = document.querySelector('#entriesTable tbody');
-      const generatePdfButton     = document.getElementById('generatePdf');
-      const clearAllButton        = document.getElementById('clearAll');
-      const pdfOrientationSelect  = document.getElementById('pdfOrientation');
-      const sheetFilterSelect     = document.getElementById('sheetFilterSelect');
-      const exportExcelImagesBtn  = document.getElementById('exportExcelImages');
-
-      ////////////////////////////////////////////////////////////////////////////
-      // Debounce helper (to limit how often we handle input)
-      ////////////////////////////////////////////////////////////////////////////
-      function debounce(fn, delay) {
-        let timeout;
-        return (...args) => {
-          clearTimeout(timeout);
-          timeout = setTimeout(() => fn(...args), delay);
-        };
-      }
-
-      ////////////////////////////////////////////////////////////////////////////
-      // Update code <datalist> suggestions
-      ////////////////////////////////////////////////////////////////////////////
-      function updateCodeSuggestions() {
-        codeSuggestions.innerHTML = '';
-        const typed = searchCodeInput.value.trim().toLowerCase();
-        let matched = typed
-          ? allCodes.filter(code => code.toLowerCase().includes(typed))
-          : allCodes;
-        const MAX_SUGGESTIONS = 50;
-        matched.slice(0, MAX_SUGGESTIONS).forEach(code => {
-          const opt = document.createElement('option');
-          opt.value = code;
-          codeSuggestions.appendChild(opt);
-        });
-      }
-
-      ////////////////////////////////////////////////////////////////////////////
-      // Update "Sheet" suggestions
-      ////////////////////////////////////////////////////////////////////////////
-      function updateSheetSuggestions() {
-        sheetSuggestions.innerHTML = '';
-        sheets.forEach(s => {
-          const opt = document.createElement('option');
-          opt.value = s.name;
-          sheetSuggestions.appendChild(opt);
-        });
-      }
-
-      ////////////////////////////////////////////////////////////////////////////
-      // Render Entries table (filter by code text + selected sheet)
-      ////////////////////////////////////////////////////////////////////////////
-      function renderEntries() {
-        entriesTableBody.innerHTML = '';
-
-        const filterText = searchCodeInput.value.trim().toLowerCase();
-        const selectedSheetId = parseInt(sheetFilterSelect.value) || null; // null => show all
-
-        // 1) Filter by asset code text
-        let rowsToShow = filterText
-          ? entries.filter(e => e.assetCode.toLowerCase().includes(filterText))
-          : entries;
-
-        // 2) Filter by sheet if selected
-        if (selectedSheetId) {
-          rowsToShow = rowsToShow.filter(e => e.sheetId === selectedSheetId);
-        }
-
-        // Show top 50 for brevity
-        rowsToShow = rowsToShow.slice(0, 50);
-
-        rowsToShow.forEach(entry => {
-          const row = document.createElement('tr');
-
-          // Asset Code
-          const assetTd = document.createElement('td');
-          assetTd.setAttribute('data-label', 'Asset Code');
-          const assetArea = document.createElement('textarea');
-          assetArea.value = entry.assetCode;
-          assetArea.rows = 1;
-          assetArea.style.width = '100%';
-          assetArea.oninput = () => {
-            entry.assetCode = assetArea.value;
-            updateEntryInDB(entry).catch(err => console.error("Error updating entry:", err));
-          };
-          assetTd.appendChild(assetArea);
-          row.appendChild(assetTd);
-
-          // Photo
-          const photoTd = document.createElement('td');
-          photoTd.setAttribute('data-label', 'Photo');
-          const img = document.createElement('img');
-          img.src = entry.image; // Base64 data URL
-          photoTd.appendChild(img);
-          row.appendChild(photoTd);
-
-          // Deviation
-          const deviationTd = document.createElement('td');
-          deviationTd.setAttribute('data-label', 'Deviation');
-          const deviationArea = document.createElement('textarea');
-          deviationArea.value = entry.deviation;
-          deviationArea.rows = 2;
-          deviationArea.style.width = '100%';
-          deviationArea.oninput = () => {
-            entry.deviation = deviationArea.value;
-            updateEntryInDB(entry).catch(err => console.error("Error updating entry:", err));
-          };
-          deviationTd.appendChild(deviationArea);
-          row.appendChild(deviationTd);
-
-          // Remedial Action
-          const remedTd = document.createElement('td');
-          remedTd.setAttribute('data-label', 'Remedial Action');
-          const remArea = document.createElement('textarea');
-          remArea.value = entry.remedial;
-          remArea.rows = 2;
-          remArea.style.width = '100%';
-          remArea.oninput = () => {
-            entry.remedial = remArea.value;
-            updateEntryInDB(entry).catch(err => console.error("Error updating entry:", err));
-          };
-          remedTd.appendChild(remArea);
-          row.appendChild(remedTd);
-
-          // Criticality
-          const criticalityTd = document.createElement('td');
-          criticalityTd.setAttribute('data-label', 'Criticality');
-          const criticalityArea = document.createElement('textarea');
-          criticalityArea.value = entry.criticality;
-          criticalityArea.rows = 1;
-          criticalityArea.style.width = '100%';
-          criticalityArea.oninput = () => {
-            entry.criticality = criticalityArea.value;
-            updateEntryInDB(entry).catch(err => console.error("Error updating entry:", err));
-          };
-          criticalityTd.appendChild(criticalityArea);
-          row.appendChild(criticalityTd);
-
-          // Actions
-          const actionsTd = document.createElement('td');
-          actionsTd.setAttribute('data-label', 'Actions');
-          const deleteBtn = document.createElement('button');
-          deleteBtn.textContent = 'Delete';
-          deleteBtn.onclick = () => {
-            if (confirm("Are you sure you want to delete this entry?")) {
-              removeEntryFromDB(entry.id)
-                .then(() => refreshEntries())
-                .catch(err => console.error("Error deleting entry:", err));
-            }
-          };
-          actionsTd.appendChild(deleteBtn);
-          row.appendChild(actionsTd);
-
-          entriesTableBody.appendChild(row);
-        });
-      }
-
-      async function refreshEntries() {
-        try {
-          entries = await getAllEntriesFromDB();
-          renderEntries();
-        } catch (err) {
-          console.error("Error refreshing entries:", err);
-        }
-      }
-
-      ////////////////////////////////////////////////////////////////////////////
-      // Add new entry form submission
-      ////////////////////////////////////////////////////////////////////////////
-      entryForm.addEventListener('submit', async e => {
-        e.preventDefault();
-
-        const code = searchCodeInput.value.trim();
-        const file = imageInput.files[0];
-        const deviation = deviationInput.value.trim();
-        const criticality = criticalityInput.value.trim();
-        const remedial = remedialInput.value.trim();
-        const typedSheetName = sheetInput.value.trim();
-
-        if (!typedSheetName) {
-          alert('Please specify a Sheet name.');
-          return;
-        }
-        if (!code) {
-          alert('Please type or pick an Asset Code before adding an entry.');
-          return;
-        }
-        if (!file) {
-          alert('Please select a photo.');
-          return;
-        }
-        if (!deviation || !criticality || !remedial) {
-          alert('Please fill out Deviation, Criticality, and Remedial Action.');
-          return;
-        }
-
-        // Check if the typed sheet already exists
-        let matchingSheet = sheets.find(
-          s => s.name.toLowerCase() === typedSheetName.toLowerCase()
-        );
-
-        // If not found, create it
-        if (!matchingSheet) {
-          try {
-            matchingSheet = await addSheetToDB(typedSheetName);
-            sheets.push(matchingSheet);
-            updateSheetSuggestions();
-            renderSheetsTable();
-            updateSheetFilterSelect();
-          } catch (err) {
-            console.error("Error creating new sheet:", err);
-            return;
-          }
-        }
-
-        // Convert photo file to base64
-        const reader = new FileReader();
-        reader.onload = async function(evt) {
-          const imageData = evt.target.result; // e.g. "data:image/png;base64,iVBOR..."
-          const newEntry = {
-            assetCode: code,
-            image: imageData,
-            deviation: deviation,
-            remedial: remedial,
-            criticality: criticality,
-            sheetId: matchingSheet.id,
-            timestamp: Date.now()
-          };
-          try {
-            await addEntryToDB(newEntry);
-            window.location.reload();
-          } catch (err) {
-            console.error("Error adding entry:", err);
+        // Actions
+        const actionsTd = document.createElement('td');
+        const delBtn = document.createElement('button');
+        delBtn.textContent = 'Delete';
+        delBtn.onclick = async () => {
+          if (confirm(`Remove sheet "${sheet.name}" and all associated entries?`)) {
+            await removeSheetFromDB(sheet.id);
+            await refreshEntries();
+            await refreshSheets();
           }
         };
-        reader.readAsDataURL(file);
+        actionsTd.appendChild(delBtn);
+        row.appendChild(actionsTd);
+
+        sheetsTableBody.appendChild(row);
+      });
+    }
+
+    ////////////////////////////////////////////////////////////////////////////
+    // Optionally load asset codes from external file (assetCodes.txt).
+    // If you don't have such a file or it fails, handle gracefully.
+    ////////////////////////////////////////////////////////////////////////////
+    let allCodes = [];
+    fetch('assetCodes.txt')
+      .then(res => {
+        if (!res.ok) {
+          throw new Error('Could not load assetCodes.txt');
+        }
+        return res.text();
+      })
+      .then(data => {
+        allCodes = data.split('\n').map(line => line.trim()).filter(line => line !== '');
+      })
+      .catch(err => console.error("Optional assetCodes.txt load error:", err));
+
+    ////////////////////////////////////////////////////////////////////////////
+    // DOM elements
+    ////////////////////////////////////////////////////////////////////////////
+    const searchCodeInput       = document.getElementById('searchCodeInput');
+    const codeSuggestions       = document.getElementById('codeSuggestions');
+    const sheetInput            = document.getElementById('sheetInput');
+    const sheetSuggestions      = document.getElementById('sheetSuggestions');
+    const entryForm             = document.getElementById('entryForm');
+    const imageInput            = document.getElementById('imageInput');
+    const deviationInput        = document.getElementById('deviationInput');
+    const criticalityInput      = document.getElementById('criticalityInput');
+    const remedialInput         = document.getElementById('remedialInput');
+    const entriesTableBody      = document.querySelector('#entriesTable tbody');
+    const generatePdfButton     = document.getElementById('generatePdf');
+    const clearAllButton        = document.getElementById('clearAll');
+    const pdfOrientationSelect  = document.getElementById('pdfOrientation');
+    const sheetFilterSelect     = document.getElementById('sheetFilterSelect');
+    const exportExcelImagesBtn  = document.getElementById('exportExcelImages');
+
+    ////////////////////////////////////////////////////////////////////////////
+    // Debounce helper (to limit how often we handle input)
+    ////////////////////////////////////////////////////////////////////////////
+    function debounce(fn, delay) {
+      let timeout;
+      return (...args) => {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => fn(...args), delay);
+      };
+    }
+
+    ////////////////////////////////////////////////////////////////////////////
+    // Update code <datalist> suggestions
+    ////////////////////////////////////////////////////////////////////////////
+    function updateCodeSuggestions() {
+      codeSuggestions.innerHTML = '';
+      const typed = searchCodeInput.value.trim().toLowerCase();
+      let matched = typed
+        ? allCodes.filter(code => code.toLowerCase().includes(typed))
+        : allCodes;
+      const MAX_SUGGESTIONS = 50;
+      matched.slice(0, MAX_SUGGESTIONS).forEach(code => {
+        const opt = document.createElement('option');
+        opt.value = code;
+        codeSuggestions.appendChild(opt);
+      });
+    }
+
+    ////////////////////////////////////////////////////////////////////////////
+    // Update "Sheet" suggestions
+    ////////////////////////////////////////////////////////////////////////////
+    function updateSheetSuggestions() {
+      sheetSuggestions.innerHTML = '';
+      sheets.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.name;
+        sheetSuggestions.appendChild(opt);
+      });
+    }
+
+    ////////////////////////////////////////////////////////////////////////////
+    // Render Entries table (filter by code text + selected sheet)
+    ////////////////////////////////////////////////////////////////////////////
+    function renderEntries() {
+      entriesTableBody.innerHTML = '';
+
+      const filterText = searchCodeInput.value.trim().toLowerCase();
+      const selectedSheetId = parseInt(sheetFilterSelect.value) || null; // null => show all
+
+      // 1) Filter by asset code text
+      let rowsToShow = filterText
+        ? entries.filter(e => e.assetCode.toLowerCase().includes(filterText))
+        : entries;
+
+      // 2) Filter by sheet if selected
+      if (selectedSheetId) {
+        rowsToShow = rowsToShow.filter(e => e.sheetId === selectedSheetId);
+      }
+
+      // Show top 50 for brevity
+      rowsToShow = rowsToShow.slice(0, 50);
+
+      rowsToShow.forEach(entry => {
+        const row = document.createElement('tr');
+
+        // Asset Code
+        const assetTd = document.createElement('td');
+        assetTd.setAttribute('data-label', 'Asset Code');
+        const assetArea = document.createElement('textarea');
+        assetArea.value = entry.assetCode;
+        assetArea.rows = 1;
+        assetArea.style.width = '100%';
+        assetArea.oninput = () => {
+          entry.assetCode = assetArea.value;
+          updateEntryInDB(entry).catch(err => console.error("Error updating entry:", err));
+        };
+        assetTd.appendChild(assetArea);
+        row.appendChild(assetTd);
+
+        // Photo
+        const photoTd = document.createElement('td');
+        photoTd.setAttribute('data-label', 'Photo');
+        const img = document.createElement('img');
+        img.src = entry.image; // Base64 data URL, e.g. "data:image/png;base64,iVBORw0K..."
+        photoTd.appendChild(img);
+        row.appendChild(photoTd);
+
+        // Deviation
+        const deviationTd = document.createElement('td');
+        deviationTd.setAttribute('data-label', 'Deviation');
+        const deviationArea = document.createElement('textarea');
+        deviationArea.value = entry.deviation;
+        deviationArea.rows = 2;
+        deviationArea.style.width = '100%';
+        deviationArea.oninput = () => {
+          entry.deviation = deviationArea.value;
+          updateEntryInDB(entry).catch(err => console.error("Error updating entry:", err));
+        };
+        deviationTd.appendChild(deviationArea);
+        row.appendChild(deviationTd);
+
+        // Remedial Action
+        const remedTd = document.createElement('td');
+        remedTd.setAttribute('data-label', 'Remedial Action');
+        const remArea = document.createElement('textarea');
+        remArea.value = entry.remedial;
+        remArea.rows = 2;
+        remArea.style.width = '100%';
+        remArea.oninput = () => {
+          entry.remedial = remArea.value;
+          updateEntryInDB(entry).catch(err => console.error("Error updating entry:", err));
+        };
+        remedTd.appendChild(remArea);
+        row.appendChild(remedTd);
+
+        // Criticality
+        const criticalityTd = document.createElement('td');
+        criticalityTd.setAttribute('data-label', 'Criticality');
+        const criticalityArea = document.createElement('textarea');
+        criticalityArea.value = entry.criticality;
+        criticalityArea.rows = 1;
+        criticalityArea.style.width = '100%';
+        criticalityArea.oninput = () => {
+          entry.criticality = criticalityArea.value;
+          updateEntryInDB(entry).catch(err => console.error("Error updating entry:", err));
+        };
+        criticalityTd.appendChild(criticalityArea);
+        row.appendChild(criticalityTd);
+
+        // Actions
+        const actionsTd = document.createElement('td');
+        actionsTd.setAttribute('data-label', 'Actions');
+        const deleteBtn = document.createElement('button');
+        deleteBtn.textContent = 'Delete';
+        deleteBtn.onclick = () => {
+          if (confirm("Are you sure you want to delete this entry?")) {
+            removeEntryFromDB(entry.id)
+              .then(() => refreshEntries())
+              .catch(err => console.error("Error deleting entry:", err));
+          }
+        };
+        actionsTd.appendChild(deleteBtn);
+        row.appendChild(actionsTd);
+
+        entriesTableBody.appendChild(row);
+      });
+    }
+
+    async function refreshEntries() {
+      try {
+        entries = await getAllEntriesFromDB();
+        renderEntries();
+      } catch (err) {
+        console.error("Error refreshing entries:", err);
+      }
+    }
+
+    ////////////////////////////////////////////////////////////////////////////
+    // Add new entry form submission
+    ////////////////////////////////////////////////////////////////////////////
+    entryForm.addEventListener('submit', async e => {
+      e.preventDefault();
+
+      const code = searchCodeInput.value.trim();
+      const file = imageInput.files[0];
+      const deviation = deviationInput.value.trim();
+      const criticality = criticalityInput.value.trim();
+      const remedial = remedialInput.value.trim();
+      const typedSheetName = sheetInput.value.trim();
+
+      if (!typedSheetName) {
+        alert('Please specify a Sheet name.');
+        return;
+      }
+      if (!code) {
+        alert('Please type or pick an Asset Code before adding an entry.');
+        return;
+      }
+      if (!file) {
+        alert('Please select a photo.');
+        return;
+      }
+      if (!deviation || !criticality || !remedial) {
+        alert('Please fill out Deviation, Criticality, and Remedial Action.');
+        return;
+      }
+
+      // Check if the typed sheet already exists
+      let matchingSheet = sheets.find(
+        s => s.name.toLowerCase() === typedSheetName.toLowerCase()
+      );
+
+      // If not found, create it
+      if (!matchingSheet) {
+        try {
+          matchingSheet = await addSheetToDB(typedSheetName);
+          sheets.push(matchingSheet);
+          updateSheetSuggestions();
+          renderSheetsTable();
+          updateSheetFilterSelect();
+        } catch (err) {
+          console.error("Error creating new sheet:", err);
+          return;
+        }
+      }
+
+      // Convert photo file to base64
+      const reader = new FileReader();
+      reader.onload = async function(evt) {
+        const imageData = evt.target.result; 
+        // e.g. "data:image/png;base64,iVBORw0K..."
+
+        const newEntry = {
+          assetCode: code,
+          image: imageData,
+          deviation: deviation,
+          remedial: remedial,
+          criticality: criticality,
+          sheetId: matchingSheet.id,
+          timestamp: Date.now()
+        };
+        try {
+          await addEntryToDB(newEntry);
+          window.location.reload(); // refresh the page
+        } catch (err) {
+          console.error("Error adding entry:", err);
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+
+    ////////////////////////////////////////////////////////////////////////////
+    // Debounced search triggers
+    ////////////////////////////////////////////////////////////////////////////
+    const handleSearch = debounce(() => {
+      updateCodeSuggestions();
+      renderEntries();
+    }, 800);
+    searchCodeInput.addEventListener('input', handleSearch);
+
+    ////////////////////////////////////////////////////////////////////////////
+    // PDF Generation
+    ////////////////////////////////////////////////////////////////////////////
+    generatePdfButton.addEventListener('click', () => {
+      const { jsPDF } = window.jspdf;
+      const orientation = pdfOrientationSelect.value; // 'l' or 'p'
+      const doc = new jsPDF(orientation, 'pt', 'letter');
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 40;
+      const startX = margin;
+      let currentY = margin;
+      const availableWidth = pageWidth - 2 * margin;
+      const colAssetW = 60;
+      const colDeviationW = 120;
+      const colRemedialW = 120;
+      const colCriticalityW = 60;
+      const colPhotoW = availableWidth - (colAssetW + colDeviationW + colRemedialW + colCriticalityW);
+      const tableW = colAssetW + colPhotoW + colDeviationW + colRemedialW + colCriticalityW;
+      const rowHeight = 130;
+      const headerHeight = 30;
+
+      function drawTableHeader() {
+        drawRowBorder(currentY, headerHeight);
+        doc.setFontSize(12);
+        doc.text('Asset', startX + 5, currentY + 18);
+        doc.text('Photo', startX + colAssetW + 5, currentY + 18);
+        doc.text('Deviation', startX + colAssetW + colPhotoW + 5, currentY + 18);
+        doc.text('Remedial', startX + colAssetW + colPhotoW + colDeviationW + 5, currentY + 18);
+        doc.text('Criticality', startX + colAssetW + colPhotoW + colDeviationW + colRemedialW + 5, currentY + 18);
+        currentY += headerHeight;
+      }
+      function drawRowBorder(y, height) {
+        doc.line(startX, y, startX + tableW, y);
+        doc.line(startX, y + height, startX + tableW, y + height);
+        doc.line(startX, y, startX, y + height);
+        doc.line(startX + colAssetW, y, startX + colAssetW, y + height);
+        doc.line(startX + colAssetW + colPhotoW, y, startX + colAssetW + colPhotoW, y + height);
+        doc.line(startX + colAssetW + colPhotoW + colDeviationW, y, startX + colAssetW + colPhotoW + colDeviationW, y + height);
+        doc.line(startX + colAssetW + colPhotoW + colDeviationW + colRemedialW, y, startX + colAssetW + colPhotoW + colDeviationW + colRemedialW, y + height);
+        doc.line(startX + tableW, y, startX + tableW, y + height);
+      }
+
+      doc.setFontSize(14);
+      doc.text('Deviation Table', startX, currentY);
+      currentY += 10;
+      drawTableHeader();
+
+      // Filter the same way we do on screen
+      const filterText = searchCodeInput.value.trim().toLowerCase();
+      const selectedSheetId = parseInt(sheetFilterSelect.value) || null;
+
+      let pdfEntries = filterText
+        ? entries.filter(e => e.assetCode.toLowerCase().includes(filterText))
+        : entries;
+
+      if (selectedSheetId) {
+        pdfEntries = pdfEntries.filter(e => e.sheetId === selectedSheetId);
+      }
+
+      pdfEntries.forEach(entry => {
+        if (currentY + rowHeight > pageHeight - margin) {
+          doc.addPage();
+          currentY = margin;
+          drawTableHeader();
+        }
+        drawRowBorder(currentY, rowHeight);
+        doc.setFontSize(10);
+
+        // Asset
+        const assetX = startX + 5;
+        const assetY = currentY + 20;
+        const assetW_ = colAssetW - 10;
+        const assetLines = doc.splitTextToSize(entry.assetCode, assetW_);
+        doc.text(assetLines, assetX, assetY);
+
+        // Photo
+        const imgX = startX + colAssetW + 5;
+        const maxImgWidth = colPhotoW - 10;
+        const maxImgHeight = rowHeight - 10;
+        try {
+          const isPng = (entry.image || '').toLowerCase().includes('image/png');
+          const format = isPng ? 'PNG' : 'JPEG';
+          const props = doc.getImageProperties(entry.image);
+          let iWidth = props.width;
+          let iHeight = props.height;
+          const ratio = Math.min(maxImgWidth / iWidth, maxImgHeight / iHeight);
+          iWidth *= ratio;
+          iHeight *= ratio;
+          const yOffset = (rowHeight - iHeight) / 2;
+          doc.addImage(entry.image, format, imgX, currentY + yOffset, iWidth, iHeight);
+        } catch (err) {
+          console.error('Image error:', err);
+        }
+
+        // Deviation
+        const deviationX = startX + colAssetW + colPhotoW + 5;
+        const deviationY = currentY + 20;
+        const deviationW_ = colDeviationW - 10;
+        const deviationLines = doc.splitTextToSize(entry.deviation, deviationW_);
+        doc.text(deviationLines, deviationX, deviationY);
+
+        // Remedial
+        const remedX = startX + colAssetW + colPhotoW + colDeviationW + 5;
+        const remedY = currentY + 20;
+        const remedW_ = colRemedialW - 10;
+        const remedLines = doc.splitTextToSize(entry.remedial, remedW_);
+        doc.text(remedLines, remedX, remedY);
+
+        // Criticality
+        const criticalX = startX + colAssetW + colPhotoW + colDeviationW + colRemedialW + 5;
+        const criticalY = currentY + 20;
+        const criticalW_ = colCriticalityW - 10;
+        const criticalLines = doc.splitTextToSize(entry.criticality, criticalW_);
+        doc.text(criticalLines, criticalX, criticalY);
+
+        currentY += rowHeight;
       });
 
-      ////////////////////////////////////////////////////////////////////////////
-      // Debounced search triggers
-      ////////////////////////////////////////////////////////////////////////////
-      const handleSearch = debounce(() => {
-        updateCodeSuggestions();
-        renderEntries();
-      }, 800);
-      searchCodeInput.addEventListener('input', handleSearch);
+      doc.save('deviation_tracker.pdf');
+    });
 
-      ////////////////////////////////////////////////////////////////////////////
-      // PDF Generation
-      ////////////////////////////////////////////////////////////////////////////
-      generatePdfButton.addEventListener('click', () => {
-        const { jsPDF } = window.jspdf;
-        const orientation = pdfOrientationSelect.value; // 'l' or 'p'
-        const doc = new jsPDF(orientation, 'pt', 'letter');
-        const pageWidth = doc.internal.pageSize.getWidth();
-        const pageHeight = doc.internal.pageSize.getHeight();
-        const margin = 40;
-        const startX = margin;
-        let currentY = margin;
-        const availableWidth = pageWidth - 2 * margin;
-        const colAssetW = 60;
-        const colDeviationW = 120;
-        const colRemedialW = 120;
-        const colCriticalityW = 60;
-        const colPhotoW = availableWidth - (colAssetW + colDeviationW + colRemedialW + colCriticalityW);
-        const tableW = colAssetW + colPhotoW + colDeviationW + colRemedialW + colCriticalityW;
-        const rowHeight = 130;
-        const headerHeight = 30;
-
-        function drawTableHeader() {
-          drawRowBorder(currentY, headerHeight);
-          doc.setFontSize(12);
-          doc.text('Asset', startX + 5, currentY + 18);
-          doc.text('Photo', startX + colAssetW + 5, currentY + 18);
-          doc.text('Deviation', startX + colAssetW + colPhotoW + 5, currentY + 18);
-          doc.text('Remedial', startX + colAssetW + colPhotoW + colDeviationW + 5, currentY + 18);
-          doc.text('Criticality', startX + colAssetW + colPhotoW + colDeviationW + colRemedialW + 5, currentY + 18);
-          currentY += headerHeight;
+    ////////////////////////////////////////////////////////////////////////////
+    // Clear All Entries
+    ////////////////////////////////////////////////////////////////////////////
+    clearAllButton.addEventListener('click', async () => {
+      if (confirm("Are you sure you want to clear all entries? This action cannot be undone.")) {
+        try {
+          await clearAllEntriesFromDB();
+          refreshEntries();
+        } catch (err) {
+          console.error("Error clearing entries:", err);
         }
-        function drawRowBorder(y, height) {
-          doc.line(startX, y, startX + tableW, y);
-          doc.line(startX, y + height, startX + tableW, y + height);
-          doc.line(startX, y, startX, y + height);
-          doc.line(startX + colAssetW, y, startX + colAssetW, y + height);
-          doc.line(startX + colAssetW + colPhotoW, y, startX + colAssetW + colPhotoW, y + height);
-          doc.line(startX + colAssetW + colPhotoW + colDeviationW, y, startX + colAssetW + colPhotoW + colDeviationW, y + height);
-          doc.line(startX + colAssetW + colPhotoW + colDeviationW + colRemedialW, y, startX + colAssetW + colPhotoW + colDeviationW + colRemedialW, y + height);
-          doc.line(startX + tableW, y, startX + tableW, y + height);
+      }
+    });
+
+    ////////////////////////////////////////////////////////////////////////////
+    // Filter by sheet
+    ////////////////////////////////////////////////////////////////////////////
+    sheetFilterSelect.addEventListener('change', renderEntries);
+
+    function updateSheetFilterSelect() {
+      sheetFilterSelect.innerHTML = '<option value="">All Sheets</option>';
+      sheets.forEach(sheet => {
+        const opt = document.createElement('option');
+        opt.value = sheet.id;
+        opt.textContent = sheet.name;
+        sheetFilterSelect.appendChild(opt);
+      });
+    }
+
+    ////////////////////////////////////////////////////////////////////////////
+    // "Export to Excel (With Embedded Images)" Button
+    ////////////////////////////////////////////////////////////////////////////
+    exportExcelImagesBtn.addEventListener('click', async () => {
+      console.log("Exporting Excel with images. Checking environment...");
+      try {
+        // Check if xlsx-populate loaded
+        if (!XlsxPopulate || !XlsxPopulate.fromBlankAsync) {
+          throw new Error("xlsx-populate not found or unsupported version. 'sheet.addImage' might not be available.");
         }
 
-        doc.setFontSize(14);
-        doc.text('Deviation Table', startX, currentY);
-        currentY += 10;
-        drawTableHeader();
-
-        // Filter the same way we do on screen
+        // 1) Filter entries the same way we do for PDF
         const filterText = searchCodeInput.value.trim().toLowerCase();
         const selectedSheetId = parseInt(sheetFilterSelect.value) || null;
 
-        let pdfEntries = filterText
+        let excelEntries = filterText
           ? entries.filter(e => e.assetCode.toLowerCase().includes(filterText))
           : entries;
 
         if (selectedSheetId) {
-          pdfEntries = pdfEntries.filter(e => e.sheetId === selectedSheetId);
+          excelEntries = excelEntries.filter(e => e.sheetId === selectedSheetId);
         }
+        console.log("Filtered entries for Excel:", excelEntries.length);
 
-        pdfEntries.forEach(entry => {
-          if (currentY + rowHeight > pageHeight - margin) {
-            doc.addPage();
-            currentY = margin;
-            drawTableHeader();
-          }
-          drawRowBorder(currentY, rowHeight);
-          doc.setFontSize(10);
+        // 2) Create a new blank workbook using xlsx-populate
+        const workbook = await XlsxPopulate.fromBlankAsync();
+        const sheet = workbook.sheet(0);
+        sheet.name("Deviations");
 
-          // Asset
-          const assetX = startX + 5;
-          const assetY = currentY + 20;
-          const assetW_ = colAssetW - 10;
-          const assetLines = doc.splitTextToSize(entry.assetCode, assetW_);
-          doc.text(assetLines, assetX, assetY);
+        // Let's set up some column headers in row 1
+        sheet.cell("A1").value("Asset Code");
+        sheet.cell("B1").value("Deviation");
+        sheet.cell("C1").value("Remedial");
+        sheet.cell("D1").value("Criticality");
+        sheet.cell("E1").value("Photo");
 
-          // Photo
-          const imgX = startX + colAssetW + 5;
-          const maxImgWidth = colPhotoW - 10;
-          const maxImgHeight = rowHeight - 10;
-          try {
-            const isPng = (entry.image || '').toLowerCase().includes('image/png');
-            const format = isPng ? 'PNG' : 'JPEG';
-            const props = doc.getImageProperties(entry.image);
-            let iWidth = props.width;
-            let iHeight = props.height;
-            const ratio = Math.min(maxImgWidth / iWidth, maxImgHeight / iHeight);
-            iWidth *= ratio;
-            iHeight *= ratio;
-            const yOffset = (rowHeight - iHeight) / 2;
-            doc.addImage(entry.image, format, imgX, currentY + yOffset, iWidth, iHeight);
-          } catch (err) {
-            console.error('Image error:', err);
-          }
-
-          // Deviation
-          const deviationX = startX + colAssetW + colPhotoW + 5;
-          const deviationY = currentY + 20;
-          const deviationW_ = colDeviationW - 10;
-          const deviationLines = doc.splitTextToSize(entry.deviation, deviationW_);
-          doc.text(deviationLines, deviationX, deviationY);
-
-          // Remedial
-          const remedX = startX + colAssetW + colPhotoW + colDeviationW + 5;
-          const remedY = currentY + 20;
-          const remedW_ = colRemedialW - 10;
-          const remedLines = doc.splitTextToSize(entry.remedial, remedW_);
-          doc.text(remedLines, remedX, remedY);
-
-          // Criticality
-          const criticalX = startX + colAssetW + colPhotoW + colDeviationW + colRemedialW + 5;
-          const criticalY = currentY + 20;
-          const criticalW_ = colCriticalityW - 10;
-          const criticalLines = doc.splitTextToSize(entry.criticality, criticalW_);
-          doc.text(criticalLines, criticalX, criticalY);
-
-          currentY += rowHeight;
+        // Make header row bold
+        ["A1","B1","C1","D1","E1"].forEach(cell => {
+          sheet.cell(cell).style({ bold: true });
         });
 
-        doc.save('deviation_tracker.pdf');
-      });
+        // 3) Loop through each entry & place data in row i
+        for (let i = 0; i < excelEntries.length; i++) {
+          const entry = excelEntries[i];
+          const rowIndex = i + 2; // row 1 is header
 
-      ////////////////////////////////////////////////////////////////////////////
-      // Clear All Entries
-      ////////////////////////////////////////////////////////////////////////////
-      clearAllButton.addEventListener('click', async () => {
-        if (confirm("Are you sure you want to clear all entries? This action cannot be undone.")) {
+          // Place text data in columns A–D
+          sheet.cell(`A${rowIndex}`).value(entry.assetCode);
+          sheet.cell(`B${rowIndex}`).value(entry.deviation);
+          sheet.cell(`C${rowIndex}`).value(entry.remedial);
+          sheet.cell(`D${rowIndex}`).value(entry.criticality);
+
+          // E = left blank
+          sheet.cell(`E${rowIndex}`).value("");
+
+          // Increase row height if needed
+          sheet.row(rowIndex).height(100);
+
+          // 4) Parse the data URL for xlsx-populate
+          const dataUrl = entry.image; // e.g. "data:image/png;base64,iVBOR..."
+          let extension = "png";
+          if (dataUrl.includes("image/jpeg") || dataUrl.includes("image/jpg")) {
+            extension = "jpeg";
+          }
+          // remove prefix "data:image/...base64,"
+          const base64Data = dataUrl.split(",")[1];
+          if (!base64Data) {
+            console.warn("No base64 data found for entry:", entry, "Skipping image embed.");
+            continue;
+          }
+
+          // 5) Insert the image
           try {
-            await clearAllEntriesFromDB();
-            refreshEntries();
-          } catch (err) {
-            console.error("Error clearing entries:", err);
-          }
-        }
-      });
-
-      ////////////////////////////////////////////////////////////////////////////
-      // Filter by sheet
-      ////////////////////////////////////////////////////////////////////////////
-      sheetFilterSelect.addEventListener('change', renderEntries);
-
-      function updateSheetFilterSelect() {
-        sheetFilterSelect.innerHTML = '<option value="">All Sheets</option>';
-        sheets.forEach(sheet => {
-          const opt = document.createElement('option');
-          opt.value = sheet.id;
-          opt.textContent = sheet.name;
-          sheetFilterSelect.appendChild(opt);
-        });
-      }
-
-      ////////////////////////////////////////////////////////////////////////////
-      // "Export to Excel (With Embedded Images)" button logic using xlsx-populate
-      ////////////////////////////////////////////////////////////////////////////
-      exportExcelImagesBtn.addEventListener('click', async () => {
-        try {
-          // 1) Filter entries the same way we do for PDF
-          const filterText = searchCodeInput.value.trim().toLowerCase();
-          const selectedSheetId = parseInt(sheetFilterSelect.value) || null;
-
-          let excelEntries = filterText
-            ? entries.filter(e => e.assetCode.toLowerCase().includes(filterText))
-            : entries;
-
-          if (selectedSheetId) {
-            excelEntries = excelEntries.filter(e => e.sheetId === selectedSheetId);
-          }
-
-          // 2) Create a new blank workbook using xlsx-populate
-          const workbook = await XlsxPopulate.fromBlankAsync();
-          const sheet = workbook.sheet(0);
-          sheet.name("Deviations");
-
-          // Let's set up some column headers in row 1
-          sheet.cell("A1").value("Asset Code");
-          sheet.cell("B1").value("Deviation");
-          sheet.cell("C1").value("Remedial");
-          sheet.cell("D1").value("Criticality");
-          sheet.cell("E1").value("Photo");
-
-          // Make header row bold
-          ["A1","B1","C1","D1","E1"].forEach(cell => {
-            sheet.cell(cell).style({ bold: true });
-          });
-
-          // 3) Loop through each entry & place data in row i
-          for (let i = 0; i < excelEntries.length; i++) {
-            const entry = excelEntries[i];
-            // rowIndex = i + 2 (row 1 is header)
-            const rowIndex = i + 2;
-
-            // Write text data
-            sheet.cell(`A${rowIndex}`).value(entry.assetCode);
-            sheet.cell(`B${rowIndex}`).value(entry.deviation);
-            sheet.cell(`C${rowIndex}`).value(entry.remedial);
-            sheet.cell(`D${rowIndex}`).value(entry.criticality);
-            // Leave "E" blank so there's no placeholder text
-            sheet.cell(`E${rowIndex}`).value("");
-
-            // Increase row height if needed
-            sheet.row(rowIndex).height(100);
-
-            // 4) xlsx-populate requires raw base64 data + extension
-            const dataUrl = entry.image; // e.g. "data:image/png;base64,iVBORw0K..."
-            let extension = 'png';
-            if (dataUrl.includes('image/jpeg') || dataUrl.includes('image/jpg')) {
-              extension = 'jpeg';
-            }
-            // remove the prefix "data:image/xxx;base64,"
-            const base64Data = dataUrl.split(',')[1];
-
-            // 5) Add the image
             sheet.addImage({
               base64: base64Data,
-              extension: extension,
+              extension: extension, 
               row: rowIndex,
               col: 5,   // E
               width: 100,
               height: 100
             });
+          } catch (imgErr) {
+            console.warn(`Could not embed image for row ${rowIndex}`, imgErr);
           }
-
-          // 6) Output the workbook to a Blob and prompt download
-          const blob = await workbook.outputAsync();
-          const url = URL.createObjectURL(blob);
-
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = "DeviationTrackerWithImages.xlsx";
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
-        } catch (err) {
-          console.error("Excel export error:", err);
-          alert("Failed to export Excel. See console for details.");
         }
-      });
 
-      ////////////////////////////////////////////////////////////////////////////
-      // On page load: open DB, then fetch & display sheets and entries
-      ////////////////////////////////////////////////////////////////////////////
+        // 6) Output workbook as Blob & prompt download
+        console.log("Workbook creation complete. Generating download...");
+        const blob = await workbook.outputAsync();
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "DeviationTrackerWithImages.xlsx";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        console.log("Excel file downloaded.");
+      } catch (err) {
+        console.error("Excel export error:", err);
+        alert("Failed to export Excel. See console for details.");
+      }
+    });
+
+    ////////////////////////////////////////////////////////////////////////////
+    // On page load: open DB, then fetch & display sheets and entries
+    ////////////////////////////////////////////////////////////////////////////
+    document.addEventListener("DOMContentLoaded", () => {
       openDatabase()
         .then(async () => {
           await refreshSheets();
           await refreshEntries();
         })
         .catch(err => console.error("Failed to open database:", err));
-
-      ////////////////////////////////////////////////////////////////////////////
-      // Also handle immediate re-render on search input
-      ////////////////////////////////////////////////////////////////////////////
-      searchCodeInput.addEventListener('input', handleSearch);
     });
   </script>
 </body>
