@@ -197,7 +197,7 @@
       </form>
     </div>
 
-    <!-- SEARCH & FILTER (Right Column) + PDF/CSV/CLEAR/EXCEL BUTTONS -->
+    <!-- SEARCH & FILTER (Right Column) + PDF/EXCEL/CLEAR BUTTONS -->
     <div class="column">
       <h2>Search & Filter</h2>
       <div class="sheets-filter">
@@ -214,7 +214,6 @@
           <option value="p">Portrait</option>
         </select>
         <button id="generatePdf">Generate PDF</button>
-        <button id="exportCsv">Export CSV (Coming Soon)</button>
         <button id="exportExcelImages">Export Excel (With Embedded Images)</button>
         <button id="clearAll">Clear All Entries</button>
       </div>
@@ -469,7 +468,6 @@
       const pdfOrientationSelect  = document.getElementById('pdfOrientation');
       const sheetFilterSelect     = document.getElementById('sheetFilterSelect');
       const exportExcelImagesBtn  = document.getElementById('exportExcelImages');
-      // CSV Export is "Coming soon" in your code, so we won't handle that here.
 
       ////////////////////////////////////////////////////////////////////////////
       // Debounce helper (to limit how often we handle input)
@@ -915,14 +913,8 @@
             sheet.row(rowIndex).height(100); // adjust as needed
 
             // 4) Add image
-            //    xlsx-populate 1.21+ can do: sheet.addImage(base64, { ...options })
-            //    The docs let you specify a range or { row, col, width, height, etc. }
             try {
-              // We specify "Base64" string (entry.image) which is "data:image/...base64..."
-              // We'll anchor it so it fits into row "rowIndex" near column E.
-              // This is basic anchor logic – you may want to adjust col/row offsets.
               sheet.addImage(entry.image, {
-                // anchorType: 'absolute', // (some versions require specifying)
                 row: rowIndex,
                 col: 5,           // E is col 5
                 width: 100,       // px
