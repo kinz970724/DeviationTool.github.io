@@ -707,9 +707,9 @@
             case 3: ctx.transform(-1, 0, 0, -1, width, height); break;
             case 4: ctx.transform(1, 0, 0, -1, 0, height); break;
             case 5: ctx.transform(0, 1, 1, 0, 0, 0); break;
-            case 6: ctx.transform(0, 1, -1, 0, height, 0); break;
+            case 6: ctx.transform(0, -1, 1, 0, 0, width); break;
             case 7: ctx.transform(0, -1, -1, 0, height, width); break;
-            case 8: ctx.transform(0, -1, 1, 0, 0, width); break;
+            case 8: ctx.transform(0, 1, -1, 0, height, 0); break;
             default: break;
           }
           ctx.drawImage(img, 0, 0);
@@ -1185,14 +1185,13 @@
     }
 
     function addEntriesToWorksheet(worksheet, excelEntries, workbook) {
-      const IMG_SIZE = 90;
-      const ROW_HEIGHT = 75;
+      const ROW_HEIGHT = 80;
       worksheet.columns = [
         { width: 18 },
         { width: 35 },
         { width: 35 },
         { width: 14 },
-        { width: 18 }
+        { width: 22 }
       ];
       const headerRow = worksheet.getRow(1);
       headerRow.values = ["Asset Code", "Deviation", "Remedial Action", "Criticality", "Photo"];
@@ -1219,7 +1218,7 @@
             const imageId = workbook.addImage({ base64: base64Data, extension: extension });
             worksheet.addImage(imageId, {
               tl: { col: 4, row: rowNum - 1 },
-              ext: { width: IMG_SIZE, height: IMG_SIZE },
+              br: { col: 5, row: rowNum },
               editAs: "oneCell"
             });
           } catch (imgErr) {
