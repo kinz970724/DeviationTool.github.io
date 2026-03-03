@@ -496,15 +496,20 @@
     }
     function addSheetToDB(sheetName) {
       return new Promise((resolve, reject) => {
+        if (!db) {
+          reject(new Error('Database not open'));
+          return;
+        }
         const transaction = db.transaction([SHEETS_STORE], 'readwrite');
         const store = transaction.objectStore(SHEETS_STORE);
-        const data = { name: sheetName.trim() };
+        const data = { name: String(sheetName).trim() };
         const request = store.add(data);
         request.onsuccess = event => {
           data.id = event.target.result;
           resolve(data);
         };
         request.onerror = event => reject(event.target.error);
+        transaction.onabort = () => reject(transaction.error || new Error('Transaction aborted'));
       });
     }
     function updateSheetInDB(sheet) {
@@ -1138,6 +1143,10 @@
 
     // New Sheet button
     document.getElementById('newSheetBtn').addEventListener('click', async () => {
+      if (!db) {
+        alert('Database not ready. Please refresh the page and try again.');
+        return;
+      }
       const name = prompt('Enter new sheet name:');
       if (!name || !name.trim()) return;
       const trimmed = name.trim();
@@ -1148,12 +1157,13 @@
       try {
         const newSheet = await addSheetToDB(trimmed);
         await refreshSheets();
-        sheetFilterSelect.value = newSheet.id;
+        sheetFilterSelect.value = String(newSheet.id);
         renderEntries();
         updateSheetHint();
       } catch (err) {
         console.error('Failed to create sheet:', err);
-        alert('Failed to create sheet.');
+        const msg = err && err.message ? err.message : (err && err.name ? err.name : 'Unknown error');
+        alert('Failed to create sheet: ' + msg + '\n\nIf using private browsing, try a normal window. Storage may be disabled.');
       }
     });
 
@@ -1287,13 +1297,20 @@
     // On page load: open DB, then fetch & display sheets and entries
     ////////////////////////////////////////////////////////////////////////////
     document.addEventListener("DOMContentLoaded", () => {
+      if (!window.indexedDB) {
+        alert('This app requires IndexedDB. Your browser may not support it or it may be disabled.');
+        return;
+      }
       openDatabase()
         .then(async () => {
           await refreshSheets();
           await refreshEntries();
           updateSheetHint();
         })
-        .catch(err => console.error("Failed to open database:", err));
+        .catch(err => {
+          console.error("Failed to open database:", err);
+          alert('Failed to open database: ' + (err.message || err) + '\n\nTry refreshing. If using private browsing, use a normal window.');
+        });
     });
   </script>
 </body>
