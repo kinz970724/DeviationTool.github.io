@@ -9,8 +9,8 @@
   <!-- jsPDF from CDN for PDF generation -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   
-  <!-- exif-js for reading image orientation (fix upright photos from mobile) -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/exif-js/2.3.0/exif.min.js"></script>
+  <!-- blueimp load-image: reliable EXIF orientation correction (all-in-one) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/blueimp-load-image/5.16.0/load-image.all.min.js"></script>
   
   <!-- ExcelJS for generating Excel with embedded images in cells -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
@@ -358,6 +358,7 @@
         <div class="button-group">
           <button id="generatePdf">Generate PDF</button>
           <button id="exportExcelImages">Export Excel (Images in Cells)</button>
+          <button id="exportHtml">Export HTML (Excel can open)</button>
           <button id="clearAll" class="btn-danger">Clear All</button>
         </div>
       </div>
@@ -585,6 +586,7 @@
     const validationBanner     = document.getElementById('validationBanner');
     const submitBtn             = document.getElementById('submitBtn');
     const exportExcelImagesBtn  = document.getElementById('exportExcelImages');
+    const exportHtmlBtn         = document.getElementById('exportHtml');
 
     const FIELD_IDS = {
       sheet: 'sheetFilterSelect',
@@ -668,74 +670,29 @@
     }
 
     ////////////////////////////////////////////////////////////////////////////
-    // EXIF Orientation: Fix photos so they save/display upright (mobile cameras)
+    // EXIF Orientation: blueimp load-image handles all 8 orientations correctly
     ////////////////////////////////////////////////////////////////////////////
-    function getExifOrientation(file) {
-      return new Promise((resolve) => {
-        if (!window.EXIF) {
-          resolve(1);
-          return;
-        }
-        EXIF.getData(file, function() {
-          const orientation = EXIF.getTag(this, "Orientation") || 1;
-          resolve(orientation);
-        });
-      });
-    }
-
-    function resetImageOrientation(srcBase64, orientation) {
-      return new Promise((resolve, reject) => {
-        if (!orientation || orientation === 1) {
-          resolve(srcBase64);
-          return;
-        }
-        const img = new Image();
-        img.onload = function() {
-          const width = img.width;
-          const height = img.height;
-          const canvas = document.createElement("canvas");
-          const ctx = canvas.getContext("2d");
-          if (orientation >= 5 && orientation <= 8) {
-            canvas.width = height;
-            canvas.height = width;
-          } else {
-            canvas.width = width;
-            canvas.height = height;
-          }
-          switch (orientation) {
-            case 2: ctx.transform(-1, 0, 0, 1, width, 0); break;
-            case 3: ctx.transform(-1, 0, 0, -1, width, height); break;
-            case 4: ctx.transform(1, 0, 0, -1, 0, height); break;
-            case 5: ctx.transform(0, 1, 1, 0, 0, 0); break;
-            case 6: ctx.transform(0, -1, 1, 0, 0, width); break;
-            case 7: ctx.transform(0, -1, -1, 0, height, width); break;
-            case 8: ctx.transform(0, 1, -1, 0, height, 0); break;
-            default: break;
-          }
-          ctx.drawImage(img, 0, 0);
-          const mime = srcBase64.match(/^data:([^;]+);/);
-          const outputMime = (mime && mime[1]) || "image/jpeg";
-          resolve(canvas.toDataURL(outputMime));
-        };
-        img.onerror = () => reject(new Error("Failed to load image"));
-        img.src = srcBase64;
-      });
-    }
-
     async function correctImageOrientation(file) {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = async (evt) => {
-          try {
-            const orientation = await getExifOrientation(file);
-            const corrected = await resetImageOrientation(evt.target.result, orientation);
-            resolve(corrected);
-          } catch (err) {
-            reject(err);
-          }
-        };
-        reader.readAsDataURL(file);
-      });
+      if (!window.loadImage) {
+        return new Promise((resolve, reject) => {
+          const r = new FileReader();
+          r.onload = () => resolve(r.result);
+          r.onerror = () => reject(new Error("Failed to read file"));
+          r.readAsDataURL(file);
+        });
+      }
+      try {
+        const result = await loadImage(file, { orientation: true, canvas: true, meta: true });
+        const mime = file.type || "image/jpeg";
+        return result.toDataURL(mime);
+      } catch (err) {
+        const r = new FileReader();
+        return new Promise((resolve, reject) => {
+          r.onload = () => resolve(r.result);
+          r.onerror = () => reject(err);
+          r.readAsDataURL(file);
+        });
+      }
     }
 
     ////////////////////////////////////////////////////////////////////////////
@@ -1215,7 +1172,15 @@
         const base64Data = dataUrl ? dataUrl.split(",")[1] : null;
         if (base64Data) {
           try {
-            const imageId = workbook.addImage({ base64: base64Data, extension: extension });
+            let imageId;
+            try {
+              imageId = workbook.addImage({ base64: base64Data, extension: extension });
+            } catch (e) {
+              const bin = atob(base64Data);
+              const arr = new Uint8Array(bin.length);
+              for (let j = 0; j < bin.length; j++) arr[j] = bin.charCodeAt(j);
+              imageId = workbook.addImage({ buffer: arr.buffer, extension: extension });
+            }
             worksheet.addImage(imageId, {
               tl: { col: 4, row: rowNum - 1 },
               br: { col: 5, row: rowNum },
@@ -1290,6 +1255,39 @@
         console.error("Excel export error:", err);
         alert("Failed to export Excel: " + (err.message || "Unknown error"));
       }
+    });
+
+    ////////////////////////////////////////////////////////////////////////////
+    // Export HTML - Excel can open HTML and save as .xlsx (images embedded)
+    ////////////////////////////////////////////////////////////////////////////
+    exportHtmlBtn.addEventListener('click', () => {
+      const filterText = searchCodeInput.value.trim().toLowerCase();
+      const selectedSheetId = parseInt(sheetFilterSelect.value) || null;
+      let htmlEntries = filterText ? entries.filter(e => e.assetCode.toLowerCase().includes(filterText)) : entries;
+      if (selectedSheetId) htmlEntries = htmlEntries.filter(e => e.sheetId === selectedSheetId);
+      if (htmlEntries.length === 0) {
+        alert('No entries to export. Add entries first.');
+        return;
+      }
+      let html = '<html><head><meta charset="UTF-8"><title>Deviation Tracker</title></head><body><table border="1">';
+      html += '<tr><th>Asset Code</th><th>Photo</th><th>Deviation</th><th>Remedial Action</th><th>Criticality</th></tr>';
+      htmlEntries.forEach(e => {
+        html += '<tr><td>' + (e.assetCode || '').replace(/</g,'&lt;') + '</td>';
+        html += '<td>' + (e.image ? '<img src="' + e.image + '" width="100" height="100" />' : '') + '</td>';
+        html += '<td>' + (e.deviation || '').replace(/</g,'&lt;').replace(/\n/g,'<br/>') + '</td>';
+        html += '<td>' + (e.remedial || '').replace(/</g,'&lt;').replace(/\n/g,'<br/>') + '</td>';
+        html += '<td>' + (e.criticality || '').replace(/</g,'&lt;') + '</td></tr>';
+      });
+      html += '</table></body></html>';
+      const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'DeviationTracker.html';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     });
 
     ////////////////////////////////////////////////////////////////////////////
